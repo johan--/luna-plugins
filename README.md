@@ -22,6 +22,10 @@ Shows which playlists already contain a track in the "Add to Playlist" menu.
 
 **The Problem:** Tidal's "Add to playlist" popup doesn't show whether a track is already in any of the listed playlists, making it easy to add duplicates.
 
+**Demo:**
+
+https://github.com/user-attachments/assets/9b1f3260-0c2a-4462-91b7-442b5a92b0f2
+
 **How It Works:**
 - Adds a green **✓** checkmark next to playlist names that already contain the track
 - Works in both the "+" button popup and the three-dots context menu's "Add to playlist" submenu
