@@ -21,11 +21,16 @@ function injectIndicator(row: Element): void {
 }
 
 export function setupContextMenuHandler(unloads: Set<LunaUnload>): void {
-	// Capture target track ID when "Add to playlist" menu opens
+	// Capture target track ID when "Add to playlist" menu opens (via "+" button)
 	redux.intercept("contextMenu/OPEN", unloads, (payload) => {
 		if (payload.type === "ADD_TO") {
 			currentTrackId = payload.id;
 		}
+	});
+
+	// Capture target track ID from the three-dots context menu
+	redux.intercept("contextMenu/OPEN_MEDIA_ITEM", unloads, (payload) => {
+		currentTrackId = payload.id;
 	});
 
 	// Clear track ID when context menu closes
