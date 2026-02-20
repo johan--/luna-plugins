@@ -1,8 +1,12 @@
 import type { LunaUnload } from "@luna/core";
-import { PlayState, redux } from "@luna/lib";
+import { redux } from "@luna/lib";
 
 import { filterTrackIds } from "./filterMatch";
 import { getCurrentFilterText, hasActiveFilter } from "./filterState";
+
+// Re-entrancy guard: we dispatch ADD_ALREADY_LOADED_ITEMS_TO_QUEUE ourselves,
+// so we must skip our own intercept to avoid infinite loops.
+let isInternalDispatch = false;
 
 export function setupQueueIntercepts(unloads: Set<LunaUnload>): void {
 	// Intercept: playing from a playlist tracklist (most common path)
@@ -29,16 +33,17 @@ export function setupQueueIntercepts(unloads: Set<LunaUnload>): void {
 			if (idx !== -1) newFromIndex = idx;
 		}
 
-		const shuffleSeed = payload.forceShuffle || PlayState.shuffle ? Math.random() : undefined;
-
-		// Dispatch filtered queue
-		redux.actions["playQueue/ADD_NOW"]({
+		// Dispatch filtered queue via ADD_ALREADY_LOADED_ITEMS_TO_QUEUE
+		// so Tidal Connect middleware processes it correctly
+		isInternalDispatch = true;
+		redux.actions["playQueue/ADD_ALREADY_LOADED_ITEMS_TO_QUEUE"]({
 			context: payload.context,
-			mediaItemIds: filteredIds,
+			items: filteredIds,
 			fromIndex: newFromIndex,
-			overwritePlayQueue: true,
-			shuffleSeed,
+			position: "now",
+			forceShuffle: payload.forceShuffle,
 		});
+		isInternalDispatch = false;
 
 		// Preserve "Playing from" UI label
 		if (payload.entityType !== undefined || payload.sourceTitle !== undefined) {
@@ -78,21 +83,22 @@ export function setupQueueIntercepts(unloads: Set<LunaUnload>): void {
 			if (idx !== -1) newFromIndex = idx;
 		}
 
-		const shuffleSeed = payload.forceShuffle || PlayState.shuffle ? Math.random() : undefined;
-
-		redux.actions["playQueue/ADD_NOW"]({
+		isInternalDispatch = true;
+		redux.actions["playQueue/ADD_ALREADY_LOADED_ITEMS_TO_QUEUE"]({
 			context: payload.context,
-			mediaItemIds: filteredIds,
+			items: filteredIds,
 			fromIndex: newFromIndex,
-			overwritePlayQueue: true,
-			shuffleSeed,
+			position: "now",
+			forceShuffle: payload.forceShuffle,
 		});
+		isInternalDispatch = false;
 
 		return true;
 	});
 
 	// Intercept: already-loaded items being added to queue
 	redux.intercept("playQueue/ADD_ALREADY_LOADED_ITEMS_TO_QUEUE", unloads, (payload) => {
+		if (isInternalDispatch) return; // let our own dispatches through
 		if (payload.position !== "now") return;
 		if (!hasActiveFilter()) return;
 
@@ -109,15 +115,13 @@ export function setupQueueIntercepts(unloads: Set<LunaUnload>): void {
 			if (idx !== -1) newFromIndex = idx;
 		}
 
-		const shuffleSeed = payload.forceShuffle || PlayState.shuffle ? Math.random() : undefined;
-
-		redux.actions["playQueue/ADD_NOW"]({
-			context: payload.context,
-			mediaItemIds: filteredIds,
+		isInternalDispatch = true;
+		redux.actions["playQueue/ADD_ALREADY_LOADED_ITEMS_TO_QUEUE"]({
+			...payload,
+			items: filteredIds,
 			fromIndex: newFromIndex,
-			overwritePlayQueue: true,
-			shuffleSeed,
 		});
+		isInternalDispatch = false;
 
 		return true;
 	});
