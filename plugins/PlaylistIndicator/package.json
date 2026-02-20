@@ -1,0 +1,7 @@
+{
+	"name": "@luna/playlist-indicator",
+	"description": "Shows which playlists already contain a track in the Add to Playlist menu",
+	"author": { "name": "squadgazzz", "url": "https://github.com/squadgazzz" },
+	"main": "./src/index.ts",
+	"type": "module"
+}
