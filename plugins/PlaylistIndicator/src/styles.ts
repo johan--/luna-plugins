@@ -12,6 +12,10 @@ export function setupStyles(unloads: Set<LunaUnload>): void {
 	margin-left: 6px;
 	font-weight: bold;
 }
+.playlist-indicator-remove-btn {
+	color: #e74c3c !important;
+	border-color: #e74c3c !important;
+}
 `,
 	);
 }

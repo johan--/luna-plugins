@@ -33,6 +33,16 @@ export function addToPlaylistCache(uuid: string, trackIds: redux.ItemId[]): void
 	for (const id of trackIds) cached.add(id);
 }
 
+export function invalidatePlaylist(uuid: string): void {
+	cache.delete(uuid);
+}
+
+export function removeFromPlaylistCache(uuid: string, trackIds: redux.ItemId[]): void {
+	const cached = cache.get(uuid);
+	if (cached === undefined) return;
+	for (const id of trackIds) cached.delete(id);
+}
+
 export function clearCache(): void {
 	cache.clear();
 	pendingFetches.clear();
