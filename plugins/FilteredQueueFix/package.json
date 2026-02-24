@@ -1,5 +1,5 @@
 {
-	"name": "@luna/filtered-queue-fix",
+	"name": "@squadgazzz/filtered-queue-fix",
 	"description": "Keeps playback queue in sync with the in-playlist filter so 'Next' stays within filtered results",
 	"author": {
 		"name": "squadgazzz",
