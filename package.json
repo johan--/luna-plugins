@@ -1,6 +1,6 @@
 {
-	"name": "@luna/template",
-	"description": "Template repo for making your own luna plugins",
+	"name": "@squadgazzz/luna-plugins",
+	"description": "A collection of Tidal Luna plugins",
 	"type": "module",
 	"scripts": {
 		"watch": "concurrently \"pnpm:build --watch\" pnpm:serve",
