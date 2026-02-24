@@ -1,0 +1,10 @@
+{
+	"name": "@squadgazzz/scroll-to-playing",
+	"description": "Fixes Tidal Connect track highlighting, auto-scrolls to the playing track, and adds a manual scroll-to-playing button",
+	"author": {
+		"name": "squadgazzz",
+		"url": "https://github.com/squadgazzz"
+	},
+	"main": "./src/index.ts",
+	"type": "module"
+}
