@@ -99,6 +99,8 @@ function getVisualIndex(queueIndex: number): number {
 	return visualIdx !== -1 ? visualIdx : queueIndex;
 }
 
+export { findMainScrollContainer, getTrackCount, getVisualIndex };
+
 export function scrollToPlayingTrack(targetQueueIndex?: number): void {
 	const trackId = getCurrentTrackId();
 	trace.log(`scrollToPlayingTrack: targetIndex=${targetQueueIndex} trackId=${trackId}`);
