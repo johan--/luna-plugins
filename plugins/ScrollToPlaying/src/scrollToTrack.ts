@@ -70,7 +70,6 @@ function getTrackCount(): number {
 	// Fallback: use the queue elements count
 	const elements = state.playQueue?.elements;
 	if (elements?.length > 0) {
-		trace.log(`Using queue elements length as track count: ${elements.length}`);
 		return elements.length;
 	}
 
@@ -99,7 +98,36 @@ function getVisualIndex(queueIndex: number): number {
 	return visualIdx !== -1 ? visualIdx : queueIndex;
 }
 
-export { findMainScrollContainer, getTrackCount, getVisualIndex };
+/**
+ * Check if the currently playing track exists in the tracklist of the page we're viewing.
+ * Extracts the playlist/album UUID from the URL and checks state.content.trackLists.
+ */
+function isPlayingTrackOnCurrentPage(): boolean {
+	const trackId = getCurrentTrackId();
+	if (!trackId) return false;
+
+	// Extract UUID from URL (supports /playlist/, /album/, /mix/)
+	const urlMatch = window.location.href.match(/\/(playlist|album|mix)\/([a-f0-9-]+)/i);
+	if (!urlMatch) return false;
+	const pageId = urlMatch[2];
+
+	const trackLists = redux.store.getState().content?.trackLists;
+	if (!trackLists) return false;
+
+	const numericId = Number(trackId);
+	for (const key of Object.keys(trackLists)) {
+		if (!key.includes(pageId)) continue;
+		const items = trackLists[key]?.sorted?.defaultSort?.items;
+		if (!items) continue;
+		if (items.includes(numericId) || items.includes(trackId)) return true;
+	}
+
+	// If no tracklist found for this page, log for debugging
+	trace.log(`No tracklist match for pageId=${pageId}, trackId=${trackId}, keys=${Object.keys(trackLists).slice(0, 3).join(", ")}`);
+	return false;
+}
+
+export { findMainScrollContainer, getTrackCount, getVisualIndex, isPlayingTrackOnCurrentPage };
 
 export function scrollToPlayingTrack(targetQueueIndex?: number): void {
 	const trackId = getCurrentTrackId();
@@ -133,7 +161,12 @@ export function scrollToPlayingTrack(targetQueueIndex?: number): void {
 		}
 	}
 
-	// Track not in DOM (virtualized) — estimate position
+	// Track not in DOM (virtualized) — only scroll if the playing track belongs to this page
+	if (!isPlayingTrackOnCurrentPage()) {
+		trace.log("Playing track not on current page, skipping scroll");
+		return;
+	}
+
 	const state = redux.store.getState();
 	const queueIndex = targetQueueIndex ?? state.playQueue?.currentIndex;
 	if (queueIndex === undefined || queueIndex < 0) {
@@ -157,7 +190,7 @@ export function scrollToPlayingTrack(targetQueueIndex?: number): void {
 
 	container.scrollTo({ top: Math.max(0, centeredPosition), behavior: "smooth" });
 
-	// After scroll, refine if track is now in the DOM
+	// After scroll animation, refine if track is now in the DOM
 	if (trackId !== undefined) {
 		setTimeout(() => {
 			const link = container.querySelector(`a[href*="/track/${trackId}"]`);

@@ -3,7 +3,7 @@ import { Tracer } from "@luna/core";
 import { redux } from "@luna/lib";
 
 import { getCurrentTrackId } from "./highlight";
-import { findMainScrollContainer, getTrackCount, getVisualIndex, scrollToPlayingTrack } from "./scrollToTrack";
+import { findMainScrollContainer, getTrackCount, getVisualIndex, isPlayingTrackOnCurrentPage, scrollToPlayingTrack } from "./scrollToTrack";
 
 const { trace } = Tracer("[ScrollToPlaying]");
 
@@ -31,7 +31,8 @@ function getPlayingTrackScrollPosition(container: Element): number | null {
  * Returns "above" | "below" | "visible".
  */
 function getTrackVisibility(container: Element): "above" | "below" | "visible" {
-	// First check if the track link is actually in the DOM and visible
+	if (!isPlayingTrackOnCurrentPage()) return "visible";
+
 	const trackId = getCurrentTrackId();
 	if (trackId !== undefined) {
 		const link = container.querySelector(`a[href*="/track/${trackId}"]`);
@@ -148,10 +149,19 @@ export function setupScrollButton(unloads: Set<LunaUnload>): void {
 	// Attach listener after a short delay (DOM needs to be ready)
 	const initTimeout = setTimeout(() => attachScrollListener(), 500);
 
-	// Also re-attach when track changes (store subscription)
+	// Only update on track changes, not every store change
+	let prevMediaItemId: string | undefined;
 	const unsubscribe = redux.store.subscribe(() => {
-		if (!scrollListenerAttached) attachScrollListener();
-		updateButtonVisibility();
+		const state = redux.store.getState();
+		const idx = state.playQueue?.currentIndex;
+		const el = idx !== undefined && idx >= 0 ? state.playQueue?.elements?.[idx] : undefined;
+		const mediaItemId = el?.mediaItemId !== undefined ? String(el.mediaItemId) : undefined;
+
+		if (mediaItemId !== prevMediaItemId) {
+			prevMediaItemId = mediaItemId;
+			if (!scrollListenerAttached) attachScrollListener();
+			updateButtonVisibility();
+		}
 	});
 
 	trace.log("Smart scroll button initialized");
