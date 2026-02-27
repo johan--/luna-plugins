@@ -1,7 +1,7 @@
 import { Tracer } from "@luna/core";
 import { redux } from "@luna/lib";
 
-import { getCurrentTrackId } from "./highlight";
+import { getCurrentTrackId, getSourceId } from "./highlight";
 
 const { trace } = Tracer("[ScrollToPlaying]");
 
@@ -51,6 +51,48 @@ function findMainScrollContainer(): Element | null {
 	return best;
 }
 
+/**
+ * Find the track's position in the current page's tracklist (from URL + state.content.trackLists).
+ * This is independent of queue data — works even when queue is stale (Tidal Connect).
+ * Supports /playlist/UUID, /album/UUID, /mix/UUID, and /my-collection/tracks.
+ */
+function getTrackPositionOnCurrentPage(trackId: string): { index: number; total: number } | null {
+	const trackLists = redux.store.getState().content?.trackLists;
+	if (!trackLists) return null;
+
+	const numericId = Number(trackId);
+
+	// If URL has a playlist/album/mix UUID, filter by it
+	const urlMatch = window.location.href.match(/\/(playlist|album|mix)\/([a-f0-9-]+)/i);
+	const pageId = urlMatch ? urlMatch[2] : undefined;
+
+	// For /my-collection/tracks (no UUID), search all loaded trackLists
+	const isCollectionPage = !pageId && /\/my-collection\/(tracks|albums)/i.test(window.location.href);
+	if (!pageId && !isCollectionPage) return null;
+
+	for (const key of Object.keys(trackLists)) {
+		if (pageId && !key.includes(pageId)) continue;
+
+		const tl = trackLists[key];
+		if (!tl?.sorted) continue;
+
+		// Check all sort orders (defaultSort, DATE_DESC, etc.)
+		for (const sortKey of Object.keys(tl.sorted)) {
+			const items = tl.sorted[sortKey]?.items;
+			if (!items || items.length === 0) continue;
+
+			let idx = items.indexOf(numericId);
+			if (idx === -1) idx = items.indexOf(trackId as never);
+			if (idx !== -1) {
+				trace.log(`Track found in "${key}" sort="${sortKey}" at index=${idx}/${items.length}`);
+				return { index: idx, total: items.length };
+			}
+		}
+	}
+
+	return null;
+}
+
 function getTrackCount(): number {
 	const state = redux.store.getState();
 	const trackListName = state.playQueue?.sourceTrackListName;
@@ -94,37 +136,21 @@ function getVisualIndex(queueIndex: number): number {
 }
 
 /**
- * Check if the currently playing track exists in the tracklist of the page we're viewing.
- * Returns true optimistically if tracklist keys exist but items haven't loaded yet.
+ * Check if the user is currently viewing a page where the playing track should be visible.
+ * Supports playlists, albums, mixes, and /my-collection/tracks.
  */
 function isPlayingTrackOnCurrentPage(): boolean {
 	const trackId = getCurrentTrackId();
 	if (!trackId) return false;
 
-	const urlMatch = window.location.href.match(/\/(playlist|album|mix)\/([a-f0-9-]+)/i);
-	if (!urlMatch) return false;
-	const pageId = urlMatch[2];
-
-	const trackLists = redux.store.getState().content?.trackLists;
-	if (!trackLists) return false;
-
-	const numericId = Number(trackId);
-	let foundMatchingKey = false;
-
-	for (const key of Object.keys(trackLists)) {
-		if (!key.includes(pageId)) continue;
-		foundMatchingKey = true;
-
-		const items = trackLists[key]?.sorted?.defaultSort?.items;
-		if (!items || items.length === 0) continue; // Key exists but items still loading
-		if (items.includes(numericId) || items.includes(trackId)) return true;
+	// If we know the source playlist, check if the URL contains that UUID
+	const sourceId = getSourceId();
+	if (sourceId) {
+		return window.location.href.includes(sourceId);
 	}
 
-	// If tracklist keys exist but items are empty, the data is still loading.
-	// Optimistically return true — user IS on a playlist page.
-	if (foundMatchingKey) return true;
-
-	return false;
+	// No source detected — check if we can find the track on this page
+	return getTrackPositionOnCurrentPage(trackId) !== null;
 }
 
 export { findMainScrollContainer, findTrackLink, getTrackCount, getVisualIndex, isPlayingTrackOnCurrentPage };
@@ -152,6 +178,8 @@ function findTrackLink(container: Element, trackId: string): Element | null {
 
 export function scrollToPlayingTrack(): void {
 	const trackId = getCurrentTrackId();
+	if (trackId === undefined) return;
+
 	trace.log(`scrollToPlayingTrack: trackId=${trackId}`);
 
 	const container = findMainScrollContainer();
@@ -162,58 +190,37 @@ export function scrollToPlayingTrack(): void {
 
 	const containerRect = container.getBoundingClientRect();
 
-	// Check if the playing track link is inside this container (excluding queue panel)
-	if (trackId !== undefined) {
-		const link = findTrackLink(container, trackId);
-		if (link !== null) {
-			const linkRect = link.getBoundingClientRect();
+	// 1. Try to find the track link in the DOM (excluding queue panel)
+	const link = findTrackLink(container, trackId);
+	if (link !== null) {
+		const linkRect = link.getBoundingClientRect();
 
-			// If the track is already visible within the container, skip scrolling
-			if (linkRect.top >= containerRect.top && linkRect.bottom <= containerRect.bottom) {
-				trace.log("Track already visible, skipping scroll");
-				return;
-			}
-
-			const offsetInContainer = linkRect.top - containerRect.top + container.scrollTop;
-			const centeredPosition = offsetInContainer - container.clientHeight / 2 + linkRect.height / 2;
-
-			container.scrollTo({ top: Math.max(0, centeredPosition), behavior: "smooth" });
+		// If already visible, skip
+		if (linkRect.top >= containerRect.top && linkRect.bottom <= containerRect.bottom) {
+			trace.log("Track already visible, skipping scroll");
 			return;
 		}
-	}
 
-	// Track not in DOM (virtualized) — only scroll if the playing track belongs to this page
-	if (!isPlayingTrackOnCurrentPage()) {
-		trace.log("Playing track not on current page, skipping scroll");
+		const offsetInContainer = linkRect.top - containerRect.top + container.scrollTop;
+		const centeredPosition = offsetInContainer - container.clientHeight / 2 + linkRect.height / 2;
+		container.scrollTo({ top: Math.max(0, centeredPosition), behavior: "smooth" });
 		return;
 	}
 
-	const state = redux.store.getState();
-	const queueIndex = state.playQueue?.currentIndex;
-	if (queueIndex === undefined || queueIndex < 0) {
-		trace.warn("No target track index for scroll");
-		return;
-	}
+	// 2. Track not in DOM — use page tracklist data (reliable, not queue-dependent)
+	const pagePosition = getTrackPositionOnCurrentPage(trackId);
+	if (pagePosition !== null) {
+		const estimatedPosition = (pagePosition.index / pagePosition.total) * container.scrollHeight;
+		const centeredPosition = estimatedPosition - container.clientHeight / 2;
 
-	const totalTracks = getTrackCount();
-	if (totalTracks <= 0) {
-		trace.warn("Could not determine track count");
-		return;
-	}
+		trace.log(`Page-based estimation: index=${pagePosition.index}/${pagePosition.total} -> scrollTo=${Math.max(0, centeredPosition).toFixed(0)}`);
+		container.scrollTo({ top: Math.max(0, centeredPosition), behavior: "smooth" });
 
-	const visualIndex = getVisualIndex(queueIndex);
-	const estimatedPosition = (visualIndex / totalTracks) * container.scrollHeight;
-	const centeredPosition = estimatedPosition - container.clientHeight / 2;
-
-	trace.log(`Position estimation: visualIndex=${visualIndex}/${totalTracks} -> scrollTo=${Math.max(0, centeredPosition).toFixed(0)}`);
-	container.scrollTo({ top: Math.max(0, centeredPosition), behavior: "smooth" });
-
-	// After scroll animation, refine if track is now in the DOM
-	if (trackId !== undefined) {
+		// Refine after virtualizer renders
 		setTimeout(() => {
-			const link = findTrackLink(container, trackId);
-			if (link !== null) {
-				const linkRect = link.getBoundingClientRect();
+			const refinedLink = findTrackLink(container, trackId);
+			if (refinedLink !== null) {
+				const linkRect = refinedLink.getBoundingClientRect();
 				const cRect = container.getBoundingClientRect();
 				const offset = linkRect.top - cRect.top + container.scrollTop;
 				const centered = offset - container.clientHeight / 2 + linkRect.height / 2;
@@ -221,5 +228,9 @@ export function scrollToPlayingTrack(): void {
 				trace.log("Refined scroll after estimation");
 			}
 		}, 600);
+		return;
 	}
+
+	// 3. No reliable data — don't scroll to avoid going to wrong position
+	trace.log("Track not in DOM and no page tracklist data, skipping scroll");
 }

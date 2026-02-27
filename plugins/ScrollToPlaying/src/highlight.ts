@@ -10,10 +10,21 @@ let highlightStyle: HTMLStyleElement | null = null;
 let currentTrackId: string | undefined;
 let sourcePlaylistId: string | undefined;
 
+/** Check if a trackList (any sort order) contains a given track ID. */
+function trackListContains(tl: any, numericId: number, stringId: string): boolean {
+	if (!tl?.sorted) return false;
+	for (const sortKey of Object.keys(tl.sorted)) {
+		const items = tl.sorted[sortKey]?.items;
+		if (!items || items.length === 0) continue;
+		if (items.includes(numericId) || items.includes(stringId)) return true;
+	}
+	return false;
+}
+
 /**
  * Detect the source playlist UUID.
  * 1. Local playback: read sourceEntityId directly
- * 2. Tidal Connect: sourceEntityId is empty — match queue elements against loaded trackLists
+ * 2. Tidal Connect: sourceEntityId is empty — try URL, then match queue elements
  */
 function getSourcePlaylistId(): string | undefined {
 	const state = redux.store.getState();
@@ -34,7 +45,35 @@ function getSourcePlaylistId(): string | undefined {
 		if (match) return match[1];
 	}
 
-	// 3. Tidal Connect fallback: match queue elements against loaded trackLists
+	// 3. URL-based: if user is viewing a page that contains the current track, use it
+	if (currentTrackId) {
+		const trackLists = state.content?.trackLists;
+		const numericId = Number(currentTrackId);
+
+		const urlMatch = window.location.href.match(/\/(playlist|album|mix)\/([a-f0-9-]+)/i);
+		if (urlMatch && trackLists) {
+			const pageId = urlMatch[2];
+			for (const key of Object.keys(trackLists)) {
+				if (!key.includes(pageId)) continue;
+				if (trackListContains(trackLists[key], numericId, currentTrackId)) {
+					trace.log(`Source from URL: pageId=${pageId}`);
+					return pageId;
+				}
+			}
+		}
+
+		// /my-collection/tracks — use sentinel
+		if (/\/my-collection\/tracks/i.test(window.location.href) && trackLists) {
+			for (const key of Object.keys(trackLists)) {
+				if (trackListContains(trackLists[key], numericId, currentTrackId)) {
+					trace.log("Source from URL: my-collection/tracks");
+					return "my-collection/tracks";
+				}
+			}
+		}
+	}
+
+	// 4. Tidal Connect fallback: match queue elements against loaded trackLists
 	if (!currentTrackId) return undefined;
 	const trackLists = state.content?.trackLists;
 	if (!trackLists) return undefined;
@@ -55,15 +94,13 @@ function getSourcePlaylistId(): string | undefined {
 	let bestQueueMatches = 0;
 
 	for (const key of Object.keys(trackLists)) {
-		const items = trackLists[key]?.sorted?.defaultSort?.items;
-		if (!items || items.length < 2) continue;
+		const tl = trackLists[key];
+		if (!trackListContains(tl, numericTrackId, currentTrackId)) continue;
 
-		// Must contain the currently playing track
-		if (!items.includes(numericTrackId) && !items.includes(currentTrackId as never)) continue;
-
+		// Count how many queue samples match this tracklist (any sort order)
 		let queueMatches = 0;
 		for (const id of sampleIds) {
-			if (items.includes(id)) queueMatches++;
+			if (trackListContains(tl, id, String(id))) queueMatches++;
 		}
 		if (queueMatches > bestQueueMatches) {
 			bestQueueMatches = queueMatches;
@@ -71,7 +108,6 @@ function getSourcePlaylistId(): string | undefined {
 		}
 	}
 
-	// Require at least 50% queue match to be confident
 	const minMatches = Math.max(2, Math.ceil(sampleIds.length * 0.5));
 	if (bestKey && bestQueueMatches >= minMatches) {
 		trace.log(`Queue matching: ${bestQueueMatches}/${sampleIds.length} matches for key=${bestKey}`);
@@ -133,6 +169,10 @@ export function getCurrentTrackId(): string | undefined {
 	return currentTrackId;
 }
 
+export function getSourceId(): string | undefined {
+	return sourcePlaylistId;
+}
+
 /** Re-apply highlight CSS with current settings. */
 export function refreshHighlight(): void {
 	if (highlightStyle === null || currentTrackId === undefined) return;
@@ -149,11 +189,11 @@ export function setPlayingTrack(mediaItemId: string | number | undefined): void 
 		return;
 	}
 
-	// Always re-check source playlist (it changes when user plays from a different playlist)
+	// Re-check source playlist. Only UPDATE if we positively detect one — never clear.
 	const newSourceId = getSourcePlaylistId();
-	if (newSourceId !== sourcePlaylistId) {
+	if (newSourceId !== undefined && newSourceId !== sourcePlaylistId) {
+		trace.log(`Source playlist: ${sourcePlaylistId ?? "none"} -> ${newSourceId}`);
 		sourcePlaylistId = newSourceId;
-		trace.log(newSourceId ? `Source playlist: ${newSourceId}` : "Source playlist cleared");
 	}
 
 	highlightStyle.textContent = buildHighlightCSS(currentTrackId);
