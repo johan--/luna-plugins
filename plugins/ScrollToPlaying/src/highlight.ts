@@ -147,16 +147,18 @@ function buildHighlightCSS(trackId: string): string {
 [aria-rowindex]:has(a[href*="/track/${trackId}"]) p { color: rgb(${rgb}) !important; }
 `;
 
-	// Highlight source playlist in sidebar
+	// Highlight source playlist/collection in sidebar
 	if (sourcePlaylistId) {
 		css += `
-/* Source playlist highlight in sidebar */
+/* Source highlight in sidebar */
 a[href*="/playlist/${sourcePlaylistId}"],
-a[href*="/album/${sourcePlaylistId}"] {
+a[href*="/album/${sourcePlaylistId}"],
+a[href*="/${sourcePlaylistId}"] {
 	color: rgb(${rgb}) !important;
 }
 a[href*="/playlist/${sourcePlaylistId}"] span,
-a[href*="/album/${sourcePlaylistId}"] span {
+a[href*="/album/${sourcePlaylistId}"] span,
+a[href*="/${sourcePlaylistId}"] span {
 	color: rgb(${rgb}) !important;
 }
 `;
