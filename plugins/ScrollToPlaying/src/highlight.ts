@@ -11,42 +11,70 @@ let currentTrackId: string | undefined;
 let sourcePlaylistId: string | undefined;
 
 /**
- * Find the source playlist UUID by matching queue elements against loaded trackLists.
+ * Detect the source playlist UUID.
+ * 1. Local playback: read sourceEntityId directly
+ * 2. Tidal Connect: sourceEntityId is empty — match queue elements against loaded trackLists
  */
-function findSourcePlaylistId(): string | undefined {
+function getSourcePlaylistId(): string | undefined {
 	const state = redux.store.getState();
-	const elements = state.playQueue?.elements;
-	if (!elements || elements.length === 0) return undefined;
+	const queue = state.playQueue;
 
+	// 1. Local playback: sourceEntityId contains the playlist UUID
+	const sourceEntityId = queue?.sourceEntityId;
+	if (sourceEntityId) {
+		const uuidMatch = String(sourceEntityId).match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+		if (uuidMatch) return uuidMatch[1];
+		return String(sourceEntityId);
+	}
+
+	// 2. Try sourceTrackListName
+	const sourceTrackListName = queue?.sourceTrackListName;
+	if (sourceTrackListName) {
+		const match = sourceTrackListName.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
+		if (match) return match[1];
+	}
+
+	// 3. Tidal Connect fallback: match queue elements against loaded trackLists
+	if (!currentTrackId) return undefined;
 	const trackLists = state.content?.trackLists;
 	if (!trackLists) return undefined;
 
-	// Sample queue elements for matching
+	const numericTrackId = Number(currentTrackId);
+	const elements = queue?.elements;
 	const sampleIds: number[] = [];
-	const step = Math.max(1, Math.floor(elements.length / 5));
-	for (let i = 0; i < elements.length && sampleIds.length < 5; i += step) {
-		const id = elements[i]?.mediaItemId;
-		if (id !== undefined) sampleIds.push(Number(id));
+	if (elements && elements.length > 0) {
+		const sampleCount = Math.min(10, elements.length);
+		const step = Math.max(1, Math.floor(elements.length / sampleCount));
+		for (let i = 0; i < elements.length && sampleIds.length < sampleCount; i += step) {
+			const id = elements[i]?.mediaItemId;
+			if (id !== undefined) sampleIds.push(Number(id));
+		}
 	}
 
 	let bestKey: string | undefined;
-	let bestMatches = 0;
+	let bestQueueMatches = 0;
 
 	for (const key of Object.keys(trackLists)) {
 		const items = trackLists[key]?.sorted?.defaultSort?.items;
 		if (!items || items.length < 2) continue;
 
-		let matches = 0;
+		// Must contain the currently playing track
+		if (!items.includes(numericTrackId) && !items.includes(currentTrackId as never)) continue;
+
+		let queueMatches = 0;
 		for (const id of sampleIds) {
-			if (items.includes(id)) matches++;
+			if (items.includes(id)) queueMatches++;
 		}
-		if (matches > bestMatches) {
-			bestMatches = matches;
+		if (queueMatches > bestQueueMatches) {
+			bestQueueMatches = queueMatches;
 			bestKey = key;
 		}
 	}
 
-	if (bestKey && bestMatches >= 2) {
+	// Require at least 50% queue match to be confident
+	const minMatches = Math.max(2, Math.ceil(sampleIds.length * 0.5));
+	if (bestKey && bestQueueMatches >= minMatches) {
+		trace.log(`Queue matching: ${bestQueueMatches}/${sampleIds.length} matches for key=${bestKey}`);
 		const match = bestKey.match(/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i);
 		return match ? match[1] : undefined;
 	}
@@ -121,12 +149,11 @@ export function setPlayingTrack(mediaItemId: string | number | undefined): void 
 		return;
 	}
 
-	// Detect source playlist if not already known
-	if (!sourcePlaylistId) {
-		sourcePlaylistId = findSourcePlaylistId();
-		if (sourcePlaylistId) {
-			trace.log(`Source playlist detected: ${sourcePlaylistId}`);
-		}
+	// Always re-check source playlist (it changes when user plays from a different playlist)
+	const newSourceId = getSourcePlaylistId();
+	if (newSourceId !== sourcePlaylistId) {
+		sourcePlaylistId = newSourceId;
+		trace.log(newSourceId ? `Source playlist: ${newSourceId}` : "Source playlist cleared");
 	}
 
 	highlightStyle.textContent = buildHighlightCSS(currentTrackId);

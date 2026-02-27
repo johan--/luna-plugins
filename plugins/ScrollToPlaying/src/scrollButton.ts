@@ -3,17 +3,13 @@ import { Tracer } from "@luna/core";
 import { redux } from "@luna/lib";
 
 import { getCurrentTrackId } from "./highlight";
-import { findMainScrollContainer, getTrackCount, getVisualIndex, isPlayingTrackOnCurrentPage, scrollToPlayingTrack } from "./scrollToTrack";
+import { findMainScrollContainer, findTrackLink, getTrackCount, getVisualIndex, isPlayingTrackOnCurrentPage, scrollToPlayingTrack } from "./scrollToTrack";
 
 const { trace } = Tracer("[ScrollToPlaying]");
 
 const ARROW_UP = "\u2191";
 const ARROW_DOWN = "\u2193";
 
-/**
- * Estimate the scroll position of the currently playing track within the container.
- * Returns null if we can't determine it.
- */
 function getPlayingTrackScrollPosition(container: Element): number | null {
 	const state = redux.store.getState();
 	const queueIndex = state.playQueue?.currentIndex;
@@ -26,16 +22,12 @@ function getPlayingTrackScrollPosition(container: Element): number | null {
 	return (visualIndex / totalTracks) * container.scrollHeight;
 }
 
-/**
- * Check if the playing track is visible in the container.
- * Returns "above" | "below" | "visible".
- */
 function getTrackVisibility(container: Element): "above" | "below" | "visible" {
 	if (!isPlayingTrackOnCurrentPage()) return "visible";
 
 	const trackId = getCurrentTrackId();
 	if (trackId !== undefined) {
-		const link = container.querySelector(`a[href*="/track/${trackId}"]`);
+		const link = findTrackLink(container, trackId);
 		if (link !== null) {
 			const containerRect = container.getBoundingClientRect();
 			const linkRect = link.getBoundingClientRect();
@@ -47,11 +39,11 @@ function getTrackVisibility(container: Element): "above" | "below" | "visible" {
 
 	// Track not in DOM (virtualized) — estimate from position
 	const estimatedPos = getPlayingTrackScrollPosition(container);
-	if (estimatedPos === null) return "visible"; // Can't determine, hide button
+	if (estimatedPos === null) return "visible";
 
 	const viewTop = container.scrollTop;
 	const viewBottom = container.scrollTop + container.clientHeight;
-	const margin = 50; // Small margin to avoid flickering at edges
+	const margin = 50;
 
 	if (estimatedPos < viewTop - margin) return "above";
 	if (estimatedPos > viewBottom + margin) return "below";
@@ -90,32 +82,35 @@ export function setupScrollButton(unloads: Set<LunaUnload>): void {
 	let currentDirection: "above" | "below" | "visible" = "visible";
 
 	function updateButtonVisibility(): void {
-		const container = findMainScrollContainer();
-		if (container === null) {
-			button.style.display = "none";
-			return;
-		}
-
-		const visibility = getTrackVisibility(container);
-
-		if (visibility === "visible") {
-			if (currentDirection !== "visible") {
+		try {
+			const container = findMainScrollContainer();
+			if (container === null) {
 				button.style.display = "none";
-				currentDirection = "visible";
+				return;
 			}
-			return;
-		}
 
-		button.textContent = visibility === "above" ? ARROW_UP : ARROW_DOWN;
-		button.title = visibility === "above" ? "Scroll up to playing track" : "Scroll down to playing track";
+			const visibility = getTrackVisibility(container);
 
-		if (currentDirection === "visible") {
-			button.style.display = "flex";
+			if (visibility === "visible") {
+				if (currentDirection !== "visible") {
+					button.style.display = "none";
+					currentDirection = "visible";
+				}
+				return;
+			}
+
+			button.textContent = visibility === "above" ? ARROW_UP : ARROW_DOWN;
+			button.title = visibility === "above" ? "Scroll up to playing track" : "Scroll down to playing track";
+
+			if (currentDirection === "visible") {
+				button.style.display = "flex";
+			}
+			currentDirection = visibility;
+		} catch (err) {
+			trace.err("Error updating button visibility:", err);
 		}
-		currentDirection = visibility;
 	}
 
-	// Listen to scroll events on <main>
 	let scrollListenerAttached = false;
 	let scrollContainer: Element | null = null;
 
@@ -123,7 +118,6 @@ export function setupScrollButton(unloads: Set<LunaUnload>): void {
 		const container = findMainScrollContainer();
 		if (container === null || container === scrollContainer) return;
 
-		// Remove old listener
 		if (scrollContainer !== null) {
 			scrollContainer.removeEventListener("scroll", onScroll);
 		}
@@ -132,13 +126,11 @@ export function setupScrollButton(unloads: Set<LunaUnload>): void {
 		scrollContainer.addEventListener("scroll", onScroll, { passive: true });
 		scrollListenerAttached = true;
 
-		// Initial check
 		updateButtonVisibility();
 	}
 
 	let scrollTimeout: ReturnType<typeof setTimeout> | undefined;
 	function onScroll(): void {
-		// Throttle updates
 		if (scrollTimeout !== undefined) return;
 		scrollTimeout = setTimeout(() => {
 			scrollTimeout = undefined;
@@ -146,34 +138,45 @@ export function setupScrollButton(unloads: Set<LunaUnload>): void {
 		}, 100);
 	}
 
-	// Attach listener after a short delay (DOM needs to be ready)
 	const initTimeout = setTimeout(() => attachScrollListener(), 500);
 
-	// Only update on track changes, not every store change
 	let prevMediaItemId: string | undefined;
 	const unsubscribe = redux.store.subscribe(() => {
-		const state = redux.store.getState();
-		const idx = state.playQueue?.currentIndex;
-		const el = idx !== undefined && idx >= 0 ? state.playQueue?.elements?.[idx] : undefined;
-		const mediaItemId = el?.mediaItemId !== undefined ? String(el.mediaItemId) : undefined;
+		try {
+			const state = redux.store.getState();
+			const idx = state.playQueue?.currentIndex;
+			const el = idx !== undefined && idx >= 0 ? state.playQueue?.elements?.[idx] : undefined;
+			const mediaItemId = el?.mediaItemId !== undefined ? String(el.mediaItemId) : undefined;
 
-		if (mediaItemId !== prevMediaItemId) {
-			prevMediaItemId = mediaItemId;
-			if (!scrollListenerAttached) attachScrollListener();
-			updateButtonVisibility();
+			if (mediaItemId !== prevMediaItemId) {
+				prevMediaItemId = mediaItemId;
+				if (!scrollListenerAttached) attachScrollListener();
+				updateButtonVisibility();
+			}
+		} catch (err) {
+			trace.err("Error in scrollButton subscriber:", err);
 		}
 	});
+
+	let prevHref = window.location.href;
+	const navInterval = setInterval(() => {
+		if (window.location.href !== prevHref) {
+			prevHref = window.location.href;
+			attachScrollListener();
+			updateButtonVisibility();
+		}
+	}, 500);
 
 	trace.log("Smart scroll button initialized");
 
 	unloads.add(() => {
-		button.removeEventListener("click", () => scrollToPlayingTrack());
 		button.remove();
 		if (scrollContainer !== null) {
 			scrollContainer.removeEventListener("scroll", onScroll);
 		}
 		if (scrollTimeout !== undefined) clearTimeout(scrollTimeout);
 		clearTimeout(initTimeout);
+		clearInterval(navInterval);
 		unsubscribe();
 	});
 }

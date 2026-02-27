@@ -16,7 +16,6 @@ function findAllViewportScrollContainers(): Element[] {
 		if (el.scrollHeight <= el.clientHeight + 50) continue;
 		if (el.clientWidth < 200) continue;
 		const rect = el.getBoundingClientRect();
-		// Container must be at least partially in the viewport
 		const overlapTop = Math.max(0, rect.top);
 		const overlapBottom = Math.min(vh, rect.bottom);
 		if (overlapBottom - overlapTop < 100) continue;
@@ -27,16 +26,13 @@ function findAllViewportScrollContainers(): Element[] {
 
 /**
  * Find the main playlist scroll container.
- * Prefer the <main> element; fall back to brute-force search.
  */
 function findMainScrollContainer(): Element | null {
-	// Direct approach: the <main> element is the scroll container in Tidal
 	const main = document.querySelector("main");
 	if (main !== null && main.scrollHeight > main.clientHeight + 50) {
 		return main;
 	}
 
-	// Fallback: brute-force search
 	const containers = findAllViewportScrollContainers();
 	if (containers.length === 0) return null;
 
@@ -67,7 +63,6 @@ function getTrackCount(): number {
 		}
 	}
 
-	// Fallback: use the queue elements count
 	const elements = state.playQueue?.elements;
 	if (elements?.length > 0) {
 		return elements.length;
@@ -100,13 +95,12 @@ function getVisualIndex(queueIndex: number): number {
 
 /**
  * Check if the currently playing track exists in the tracklist of the page we're viewing.
- * Extracts the playlist/album UUID from the URL and checks state.content.trackLists.
+ * Returns true optimistically if tracklist keys exist but items haven't loaded yet.
  */
 function isPlayingTrackOnCurrentPage(): boolean {
 	const trackId = getCurrentTrackId();
 	if (!trackId) return false;
 
-	// Extract UUID from URL (supports /playlist/, /album/, /mix/)
 	const urlMatch = window.location.href.match(/\/(playlist|album|mix)\/([a-f0-9-]+)/i);
 	if (!urlMatch) return false;
 	const pageId = urlMatch[2];
@@ -115,47 +109,74 @@ function isPlayingTrackOnCurrentPage(): boolean {
 	if (!trackLists) return false;
 
 	const numericId = Number(trackId);
+	let foundMatchingKey = false;
+
 	for (const key of Object.keys(trackLists)) {
 		if (!key.includes(pageId)) continue;
+		foundMatchingKey = true;
+
 		const items = trackLists[key]?.sorted?.defaultSort?.items;
-		if (!items) continue;
+		if (!items || items.length === 0) continue; // Key exists but items still loading
 		if (items.includes(numericId) || items.includes(trackId)) return true;
 	}
 
-	// If no tracklist found for this page, log for debugging
-	trace.log(`No tracklist match for pageId=${pageId}, trackId=${trackId}, keys=${Object.keys(trackLists).slice(0, 3).join(", ")}`);
+	// If tracklist keys exist but items are empty, the data is still loading.
+	// Optimistically return true — user IS on a playlist page.
+	if (foundMatchingKey) return true;
+
 	return false;
 }
 
-export { findMainScrollContainer, getTrackCount, getVisualIndex, isPlayingTrackOnCurrentPage };
+export { findMainScrollContainer, findTrackLink, getTrackCount, getVisualIndex, isPlayingTrackOnCurrentPage };
 
-export function scrollToPlayingTrack(targetQueueIndex?: number): void {
+/**
+ * Find a track link in the main content area, ignoring links inside the queue panel.
+ */
+function findTrackLink(container: Element, trackId: string): Element | null {
+	const links = container.querySelectorAll(`a[href*="/track/${trackId}"]`);
+	for (const link of links) {
+		let inQueue = false;
+		let ancestor: Element | null = link.parentElement;
+		while (ancestor && ancestor !== container) {
+			const cls = ancestor.className?.toString?.() ?? "";
+			if (/queue/i.test(cls)) {
+				inQueue = true;
+				break;
+			}
+			ancestor = ancestor.parentElement;
+		}
+		if (!inQueue) return link;
+	}
+	return null;
+}
+
+export function scrollToPlayingTrack(): void {
 	const trackId = getCurrentTrackId();
-	trace.log(`scrollToPlayingTrack: targetIndex=${targetQueueIndex} trackId=${trackId}`);
+	trace.log(`scrollToPlayingTrack: trackId=${trackId}`);
 
 	const container = findMainScrollContainer();
 	if (container === null) {
-		trace.warn("No scroll container found in viewport");
+		trace.warn("No scroll container found");
 		return;
 	}
 
 	const containerRect = container.getBoundingClientRect();
-	const containerStyle = getComputedStyle(container);
-	trace.log(
-		`Using container: <${container.tagName.toLowerCase()} class="${container.className.toString().substring(0, 50)}"> ` +
-		`rect=[${containerRect.top.toFixed(0)},${containerRect.bottom.toFixed(0)}] scrollTop=${container.scrollTop} ` +
-		`scrollH=${container.scrollHeight} clientH=${container.clientHeight} overflow=${containerStyle.overflowY}`,
-	);
 
-	// Check if the playing track link is inside this container
+	// Check if the playing track link is inside this container (excluding queue panel)
 	if (trackId !== undefined) {
-		const link = container.querySelector(`a[href*="/track/${trackId}"]`);
+		const link = findTrackLink(container, trackId);
 		if (link !== null) {
 			const linkRect = link.getBoundingClientRect();
+
+			// If the track is already visible within the container, skip scrolling
+			if (linkRect.top >= containerRect.top && linkRect.bottom <= containerRect.bottom) {
+				trace.log("Track already visible, skipping scroll");
+				return;
+			}
+
 			const offsetInContainer = linkRect.top - containerRect.top + container.scrollTop;
 			const centeredPosition = offsetInContainer - container.clientHeight / 2 + linkRect.height / 2;
 
-			trace.log(`Track link found in container at top=${linkRect.top.toFixed(0)}, scrolling to ${centeredPosition.toFixed(0)}`);
 			container.scrollTo({ top: Math.max(0, centeredPosition), behavior: "smooth" });
 			return;
 		}
@@ -168,7 +189,7 @@ export function scrollToPlayingTrack(targetQueueIndex?: number): void {
 	}
 
 	const state = redux.store.getState();
-	const queueIndex = targetQueueIndex ?? state.playQueue?.currentIndex;
+	const queueIndex = state.playQueue?.currentIndex;
 	if (queueIndex === undefined || queueIndex < 0) {
 		trace.warn("No target track index for scroll");
 		return;
@@ -176,7 +197,7 @@ export function scrollToPlayingTrack(targetQueueIndex?: number): void {
 
 	const totalTracks = getTrackCount();
 	if (totalTracks <= 0) {
-		trace.warn(`Could not determine track count`);
+		trace.warn("Could not determine track count");
 		return;
 	}
 
@@ -184,16 +205,13 @@ export function scrollToPlayingTrack(targetQueueIndex?: number): void {
 	const estimatedPosition = (visualIndex / totalTracks) * container.scrollHeight;
 	const centeredPosition = estimatedPosition - container.clientHeight / 2;
 
-	trace.log(
-		`Position estimation: visualIndex=${visualIndex}/${totalTracks} -> scrollTo=${Math.max(0, centeredPosition).toFixed(0)}`,
-	);
-
+	trace.log(`Position estimation: visualIndex=${visualIndex}/${totalTracks} -> scrollTo=${Math.max(0, centeredPosition).toFixed(0)}`);
 	container.scrollTo({ top: Math.max(0, centeredPosition), behavior: "smooth" });
 
 	// After scroll animation, refine if track is now in the DOM
 	if (trackId !== undefined) {
 		setTimeout(() => {
-			const link = container.querySelector(`a[href*="/track/${trackId}"]`);
+			const link = findTrackLink(container, trackId);
 			if (link !== null) {
 				const linkRect = link.getBoundingClientRect();
 				const cRect = container.getBoundingClientRect();
@@ -201,8 +219,6 @@ export function scrollToPlayingTrack(targetQueueIndex?: number): void {
 				const centered = offset - container.clientHeight / 2 + linkRect.height / 2;
 				container.scrollTo({ top: Math.max(0, centered), behavior: "smooth" });
 				trace.log("Refined scroll after estimation");
-			} else {
-				trace.log("Track still not in DOM after estimation scroll");
 			}
 		}, 600);
 	}
