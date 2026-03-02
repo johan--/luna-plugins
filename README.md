@@ -2,8 +2,6 @@
 
 A collection of **[Tidal Luna](https://github.com/Inrixia/TidaLuna)** plugins.
 
-## Plugins
-
 ### FilteredQueueFix
 
 Keeps the playback queue in sync with the in-playlist filter so "Next" stays within filtered results.
@@ -36,6 +34,10 @@ https://github.com/user-attachments/assets/9b1f3260-0c2a-4462-91b7-442b5a92b0f2
 Highlights the currently playing track and source playlist, auto-scrolls to the playing track, and adds a scroll-to-playing button.
 
 **The Problem:** When using Tidal Connect (remote playback), the desktop app doesn't highlight which track is currently playing in the playlist, making it hard to find it — especially in long playlists. It's also unclear which playlist the music is playing from.
+
+**Demo:**
+
+https://github.com/user-attachments/assets/c68dc654-04bd-4477-b367-11cd86b3ba6b
 
 **Features:**
 - **Track row highlight** — the currently playing track row is highlighted with a colored background, left accent bar, and tinted text
