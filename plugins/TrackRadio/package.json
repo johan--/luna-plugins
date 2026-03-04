@@ -1,0 +1,10 @@
+{
+	"name": "@squadgazzz/track-radio",
+	"description": "Adds a context menu button to force-fetch and navigate to a track's radio mix",
+	"author": {
+		"name": "squadgazzz",
+		"url": "https://github.com/squadgazzz"
+	},
+	"main": "./src/index.ts",
+	"type": "module"
+}

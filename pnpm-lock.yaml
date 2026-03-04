@@ -45,6 +45,10 @@ importers:
 
   plugins/ScrollToPlaying: {}
 
+  plugins/SeekSpy: {}
+
+  plugins/TrackRadio: {}
+
 packages:
 
   '@esbuild/aix-ppc64@0.27.3':
