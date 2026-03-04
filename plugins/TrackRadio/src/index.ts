@@ -5,7 +5,7 @@ import { ContextMenu, redux } from "@luna/lib";
 export { errSignal, unloads } from "./index.safe";
 
 const radioButton = ContextMenu.addButton(unloads);
-radioButton.text = "Go to Track Radio";
+radioButton.text = "Force Track Radio";
 
 ContextMenu.onMediaItem(unloads, async ({ mediaCollection, contextMenu }) => {
 	const count = await mediaCollection.count();
@@ -42,7 +42,7 @@ ContextMenu.onMediaItem(unloads, async ({ mediaCollection, contextMenu }) => {
 		} catch (err) {
 			trace.msg.err.withContext("Failed to load track radio")(err);
 		} finally {
-			radioButton.text = "Go to Track Radio";
+			radioButton.text = "Force Track Radio";
 		}
 	});
 
