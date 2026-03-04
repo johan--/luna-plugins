@@ -48,12 +48,12 @@ ContextMenu.onMediaItem(unloads, async ({ mediaCollection, contextMenu }) => {
 			);
 			if (!("mixId" in result) || !result.mixId) {
 				const errorMsg = "error" in result ? result.error : "No radio available for this track";
-				trace.msg.err(errorMsg);
+				trace.msg.log(errorMsg);
 				return;
 			}
 			redux.actions["router/PUSH"]({ pathname: `/mix/${result.mixId}`, search: "", replace: false });
 		} catch (err) {
-			trace.msg.err.withContext("Failed to load track radio")(err);
+			trace.msg.log.withContext("Failed to load track radio")(err);
 		} finally {
 			if (label) label.textContent = originalText;
 		}
