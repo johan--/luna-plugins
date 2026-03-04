@@ -19,6 +19,10 @@ ContextMenu.onMediaItem(unloads, async ({ mediaCollection, contextMenu }) => {
 	}
 	if (trackId === undefined) return;
 
+	// Only show if the native "Go to track radio" button is disabled or missing
+	const nativeRadioLink = contextMenu.querySelector<HTMLAnchorElement>(`a[data-test="track-radio"]`);
+	if (nativeRadioLink && !Array.from(nativeRadioLink.classList).some((c) => c.startsWith("_disabled_"))) return;
+
 	radioButton.onClick(async () => {
 		radioButton.text = "Loading Track Radio...";
 		try {
