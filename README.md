@@ -52,6 +52,10 @@ https://github.com/user-attachments/assets/c68dc654-04bd-4477-b367-11cd86b3ba6b
 
 Adds a "Force Track Radio" button to the track context menu that fetches and navigates to a track's radio mix — bypassing the native button's loading delay.
 
+**Demo:**
+
+https://github.com/user-attachments/assets/8ec89d2f-f465-43a6-aeae-dff60de966db
+
 **The Problem:** Tidal's "Go to track radio" context menu button starts greyed out and only becomes clickable after the app fetches the mix data in the background. Sometimes it never becomes clickable at all.
 
 **How It Works:** When the native radio button is disabled or missing, adds a "Force Track Radio" button that dispatches `mix/LOAD_TRACK_MIX_ID` to force Tidal to fetch the radio, then navigates to the mix page. Hides itself when the native button is already clickable.
