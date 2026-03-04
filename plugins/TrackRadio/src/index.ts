@@ -4,12 +4,16 @@ import { ContextMenu, redux } from "@luna/lib";
 
 export { errSignal, unloads } from "./index.safe";
 
-const radioButton = ContextMenu.addButton(unloads);
-radioButton.text = "Force Track Radio";
-
 ContextMenu.onMediaItem(unloads, async ({ mediaCollection, contextMenu }) => {
 	const count = await mediaCollection.count();
 	if (count !== 1) return;
+
+	// Find the native radio button — only act if it's disabled
+	const nativeRadioLink = contextMenu.querySelector<HTMLAnchorElement>(`a[data-test="track-radio"]`);
+	if (!nativeRadioLink || !Array.from(nativeRadioLink.classList).some((c) => c.startsWith("_disabled_"))) return;
+
+	const nativeItem = nativeRadioLink.closest<HTMLElement>(`[data-type="contextmenu-item"]`);
+	if (!nativeItem) return;
 
 	const items = await mediaCollection.mediaItems();
 	let trackId: redux.ItemId | undefined;
@@ -19,12 +23,22 @@ ContextMenu.onMediaItem(unloads, async ({ mediaCollection, contextMenu }) => {
 	}
 	if (trackId === undefined) return;
 
-	// Only show if the native "Go to track radio" button is disabled or missing
-	const nativeRadioLink = contextMenu.querySelector<HTMLAnchorElement>(`a[data-test="track-radio"]`);
-	if (nativeRadioLink && !Array.from(nativeRadioLink.classList).some((c) => c.startsWith("_disabled_"))) return;
+	// Remove disabled styling from the native button
+	for (const cls of Array.from(nativeItem.classList)) {
+		if (cls.startsWith("_actionItemDisabled_")) nativeItem.classList.remove(cls);
+	}
+	for (const cls of Array.from(nativeRadioLink.classList)) {
+		if (cls.startsWith("_disabled_")) nativeRadioLink.classList.remove(cls);
+	}
 
-	radioButton.onClick(async () => {
-		radioButton.text = "Loading Track Radio...";
+	const label = nativeRadioLink.querySelector("span");
+	const originalText = label?.textContent ?? "";
+
+	// Hijack click to force-fetch the radio
+	nativeRadioLink.addEventListener("click", async (e) => {
+		e.preventDefault();
+		e.stopPropagation();
+		if (label) label.textContent = "Loading Track Radio...";
 		try {
 			const result = await redux.interceptActionResp(
 				() => redux.actions["mix/LOAD_TRACK_MIX_ID"]({ id: trackId }),
@@ -32,7 +46,6 @@ ContextMenu.onMediaItem(unloads, async ({ mediaCollection, contextMenu }) => {
 				["mix/LOAD_TRACK_MIX_ID_SUCCESS"],
 				["mix/LOAD_TRACK_MIX_ID_FAIL"],
 			);
-			// interceptActionResp resolves for both success AND fail actions — check for mixId
 			if (!("mixId" in result) || !result.mixId) {
 				const errorMsg = "error" in result ? result.error : "No radio available for this track";
 				trace.msg.err(errorMsg);
@@ -42,9 +55,7 @@ ContextMenu.onMediaItem(unloads, async ({ mediaCollection, contextMenu }) => {
 		} catch (err) {
 			trace.msg.err.withContext("Failed to load track radio")(err);
 		} finally {
-			radioButton.text = "Force Track Radio";
+			if (label) label.textContent = originalText;
 		}
 	});
-
-	await radioButton.show(contextMenu);
 });
