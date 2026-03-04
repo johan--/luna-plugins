@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/c68dc654-04bd-4477-b367-11cd86b3ba6b
 - **Scroll-to-playing button** — a floating arrow button appears when the playing track is scrolled out of view, pointing toward it; click to scroll back
 - **Configurable colors** — highlight color (RGB) and background opacity are adjustable in settings
 
-**How It Works:** Intercepts Tidal Connect `MEDIA_CHANGED` events and syncs the play queue index. Detects the source playlist by matching queue tracks against loaded track lists. Scrolls the `<main>` container using position estimation for virtualized lists, with a refinement pass once the track row renders. If a radio for this track doesn't exist, a corresponding error banner is shown.
+**How It Works:** Intercepts Tidal Connect `MEDIA_CHANGED` events and syncs the play queue index. Detects the source playlist by matching queue tracks against loaded track lists. Scrolls the `<main>` container using position estimation for virtualized lists, with a refinement pass once the track row renders.
 
 ### TrackRadio
 
@@ -58,7 +58,7 @@ https://github.com/user-attachments/assets/8ec89d2f-f465-43a6-aeae-dff60de966db
 
 **The Problem:** Tidal's "Go to track radio" context menu button starts greyed out and only becomes clickable after the app fetches the mix data in the background. Sometimes it never becomes clickable at all.
 
-**How It Works:** When the native radio button is disabled or missing, adds a "Force Track Radio" button that dispatches `mix/LOAD_TRACK_MIX_ID` to force Tidal to fetch the radio, then navigates to the mix page. Hides itself when the native button is already clickable.
+**How It Works:** When the native radio button is disabled or missing, adds a "Force Track Radio" button that dispatches `mix/LOAD_TRACK_MIX_ID` to force Tidal to fetch the radio, then navigates to the mix page. Hides itself when the native button is already clickable. If a radio for this track doesn't exist, a corresponding error banner is shown.
 
 ## Installation
 
