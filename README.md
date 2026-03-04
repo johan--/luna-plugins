@@ -46,6 +46,14 @@ Highlights the currently playing track and source playlist, auto-scrolls to the 
 
 **How It Works:** Intercepts Tidal Connect `MEDIA_CHANGED` events and syncs the play queue index. Detects the source playlist by matching queue tracks against loaded track lists. Scrolls the `<main>` container using position estimation for virtualized lists, with a refinement pass once the track row renders.
 
+### TrackRadio
+
+Adds a "Force Track Radio" button to the track context menu that fetches and navigates to a track's radio mix — bypassing the native button's loading delay.
+
+**The Problem:** Tidal's "Go to track radio" context menu button starts greyed out and only becomes clickable after the app fetches the mix data in the background. Sometimes it never becomes clickable at all.
+
+**How It Works:** When the native radio button is disabled or missing, adds a "Force Track Radio" button that dispatches `mix/LOAD_TRACK_MIX_ID` to force Tidal to fetch the radio, then navigates to the mix page. Hides itself when the native button is already clickable.
+
 ## Installation
 
 Install individual plugins from the releases page:
@@ -60,6 +68,10 @@ https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.playlis
 
 ```
 https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.scroll-to-playing
+```
+
+```
+https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.track-radio
 ```
 
 Or install the full store:
