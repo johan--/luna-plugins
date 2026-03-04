@@ -46,7 +46,7 @@ https://github.com/user-attachments/assets/c68dc654-04bd-4477-b367-11cd86b3ba6b
 - **Scroll-to-playing button** — a floating arrow button appears when the playing track is scrolled out of view, pointing toward it; click to scroll back
 - **Configurable colors** — highlight color (RGB) and background opacity are adjustable in settings
 
-**How It Works:** Intercepts Tidal Connect `MEDIA_CHANGED` events and syncs the play queue index. Detects the source playlist by matching queue tracks against loaded track lists. Scrolls the `<main>` container using position estimation for virtualized lists, with a refinement pass once the track row renders.
+**How It Works:** Intercepts Tidal Connect `MEDIA_CHANGED` events and syncs the play queue index. Detects the source playlist by matching queue tracks against loaded track lists. Scrolls the `<main>` container using position estimation for virtualized lists, with a refinement pass once the track row renders. If a radio for this track doesn't exist, a corresponding error banner is shown.
 
 ### TrackRadio
 
