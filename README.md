@@ -66,7 +66,7 @@ Makes the native "Go to track radio" context menu button work immediately — ev
 
 **Demo:**
 
-https://github.com/user-attachments/assets/8ec89d2f-f465-43a6-aeae-dff60de966db
+https://github.com/user-attachments/assets/480180c1-d6b8-4cf5-ba06-556a49bd7084
 
 ---
 
