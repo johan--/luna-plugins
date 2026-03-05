@@ -1,10 +1,11 @@
 {
-	"name": "@squadgazzz/scroll-to-playing",
+	"name": "Scroll To Playing",
 	"description": "Fixes Tidal Connect track highlighting, auto-scrolls to the playing track, and adds a manual scroll-to-playing button",
+	"homepage": "https://github.com/squadgazzz/luna-plugins#ScrollToPlaying",
 	"author": {
 		"name": "squadgazzz",
-		"url": "https://github.com/squadgazzz"
+		"url": "https://github.com/squadgazzz",
+		"avatarUrl": "https://avatars.githubusercontent.com/squadgazzz"
 	},
-	"main": "./src/index.ts",
-	"type": "module"
+	"exports": "./src/index.ts"
 }

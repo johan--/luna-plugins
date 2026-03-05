@@ -1,7 +1,11 @@
 {
-	"name": "@squadgazzz/playlist-indicator",
+	"name": "Playlist Indicator",
 	"description": "Shows which playlists already contain a track in the Add to Playlist menu",
-	"author": { "name": "squadgazzz", "url": "https://github.com/squadgazzz" },
-	"main": "./src/index.ts",
-	"type": "module"
+	"homepage": "https://github.com/squadgazzz/luna-plugins#PlaylistIndicator",
+	"author": {
+		"name": "squadgazzz",
+		"url": "https://github.com/squadgazzz",
+		"avatarUrl": "https://avatars.githubusercontent.com/squadgazzz"
+	},
+	"exports": "./src/index.ts"
 }
