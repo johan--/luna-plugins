@@ -7,5 +7,6 @@
 		"url": "https://github.com/squadgazzz",
 		"avatarUrl": "https://avatars.githubusercontent.com/squadgazzz"
 	},
-	"exports": "./src/index.ts"
+	"main": "./src/index.ts",
+	"type": "module"
 }
