@@ -1,11 +1,10 @@
 {
-	"name": "Filtered Queue Fix",
+	"name": "@squadgazzz/filtered-queue-fix",
 	"description": "Keeps playback queue in sync with the in-playlist filter so 'Next' stays within filtered results",
-	"homepage": "https://github.com/squadgazzz/luna-plugins#FilteredQueueFix",
 	"author": {
 		"name": "squadgazzz",
-		"url": "https://github.com/squadgazzz",
-		"avatarUrl": "https://avatars.githubusercontent.com/squadgazzz"
+		"url": "https://github.com/squadgazzz"
 	},
-	"exports": "./src/index.ts"
+	"main": "./src/index.ts",
+	"type": "module"
 }
