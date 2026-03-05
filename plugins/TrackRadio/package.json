@@ -1,5 +1,5 @@
 {
-	"name": "Track Radio",
+	"name": "@squadgazzz/Track Radio",
 	"description": "Adds a context menu button to force-fetch and navigate to a track's radio mix",
 	"homepage": "https://github.com/squadgazzz/luna-plugins#TrackRadio",
 	"author": {
