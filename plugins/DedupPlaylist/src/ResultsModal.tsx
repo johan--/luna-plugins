@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 
 import type { PlaylistScanResult } from "./dedup";
+import { fullTitle } from "./detection";
 
 function formatDuration(seconds: number): string {
 	const m = Math.floor(seconds / 60);
@@ -113,6 +114,7 @@ export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
 									{group.choices.map((choice, ci) => {
 										const t = choice.track.track.item;
 										const artists = t.artists.map((a) => a.name).join(", ");
+										const year = (t.album?.releaseDate ?? t.streamStartDate)?.slice(0, 4);
 										return (
 											<label
 												key={ci}
@@ -143,10 +145,15 @@ export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
 															whiteSpace: "nowrap",
 														}}
 													>
-														{t.title}
+														{fullTitle(t)}
 													</div>
 													<div style={{ fontSize: "11px", color: "rgba(255,255,255,0.5)", marginTop: "2px" }}>
 														{artists}
+														{t.album && (
+															<span style={{ marginLeft: "6px", color: "rgba(255,255,255,0.35)" }}>
+																— {t.album.title}{year ? ` (${year})` : ""}
+															</span>
+														)}
 													</div>
 												</div>
 												<div style={{ flexShrink: 0, textAlign: "right", fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>

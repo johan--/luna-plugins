@@ -7,10 +7,12 @@ import {
 	byId as initById,
 	byIsrc as initByIsrc,
 	byName as initByName,
+	byRemaster as initByRemaster,
 	keepStrategy as initKeepStrategy,
 	setById,
 	setByIsrc,
 	setByName,
+	setByRemaster,
 	setKeepStrategy,
 	type KeepStrategy,
 } from "./state";
@@ -126,6 +128,12 @@ export const Settings = () => {
 					desc="Find tracks with the same name, artist, and similar duration"
 					defaultChecked={initByName}
 					onChange={(e: React.ChangeEvent<HTMLInputElement>) => setByName(e.target.checked)}
+				/>
+				<LunaSwitchSetting
+					title="Detect remasters"
+					desc="Find remastered versions of the same track (e.g. 'Angel' vs 'Angel (Remastered 2015)')"
+					defaultChecked={initByRemaster}
+					onChange={(e: React.ChangeEvent<HTMLInputElement>) => setByRemaster(e.target.checked)}
 				/>
 
 				<div style={{ padding: "12px 0" }}>

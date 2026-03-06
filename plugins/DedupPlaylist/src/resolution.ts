@@ -1,4 +1,4 @@
-import type { DuplicateGroup } from "./detection";
+import { isRemastered, type DuplicateGroup } from "./detection";
 
 const QUALITY_RANK: Record<string, number> = {
 	LOW: 0,
@@ -25,6 +25,10 @@ export function resolveDuplicates(group: DuplicateGroup, strategy: "best-quality
 			const qualA = QUALITY_RANK[a.track.item.audioQuality ?? ""] ?? -1;
 			const qualB = QUALITY_RANK[b.track.item.audioQuality ?? ""] ?? -1;
 			if (qualB !== qualA) return qualB - qualA;
+			// Tie-break: prefer remastered version
+			const remA = isRemastered(a.track.item.title, a.track.item.version) ? 1 : 0;
+			const remB = isRemastered(b.track.item.title, b.track.item.version) ? 1 : 0;
+			if (remB !== remA) return remB - remA;
 			// Tie-break: keep earlier occurrence
 			return a.index - b.index;
 		});
