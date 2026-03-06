@@ -1,0 +1,129 @@
+import { redux, TidalApi } from "@luna/lib";
+
+import type { TrackItem } from "./detection";
+
+interface PlaylistItemsResponse {
+	items: TrackItem[];
+	totalNumberOfItems: number;
+}
+
+export interface PlaylistInfo {
+	uuid: string;
+	title: string;
+	numberOfTracks: number;
+}
+
+function getUserId(): number | null {
+	const state = redux.store.getState();
+	return state.session?.userId ?? null;
+}
+
+export async function fetchFavoritesCount(): Promise<number> {
+	const userId = getUserId();
+	if (userId === null) return 0;
+
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=1`, { headers });
+	if (!res.ok) return 0;
+	const data = (await res.json()) as { totalNumberOfItems: number };
+	return data.totalNumberOfItems ?? 0;
+}
+
+export async function fetchUserPlaylists(): Promise<PlaylistInfo[]> {
+	const userId = getUserId();
+	if (userId === null) throw new Error("Not logged in");
+
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/playlists?${queryArgs}&limit=999`, { headers });
+	if (!res.ok) throw new Error(`Failed to fetch playlists: ${res.status}`);
+
+	const data = (await res.json()) as { items: { uuid: string; title: string; numberOfTracks: number }[] };
+	return data.items.map((p) => ({ uuid: p.uuid, title: p.title, numberOfTracks: p.numberOfTracks }));
+}
+
+export async function fetchPlaylistItems(playlistUUID: string): Promise<TrackItem[]> {
+	// Use raw fetch instead of TidalApi.playlistItems() to bypass memoization
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+	const res = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=-1`, { headers });
+	if (!res.ok) throw new Error(`Failed to fetch playlist items: ${res.status}`);
+	const data = (await res.json()) as PlaylistItemsResponse;
+	return data.items;
+}
+
+export async function fetchFavoriteTracks(): Promise<TrackItem[]> {
+	const userId = getUserId();
+	if (userId === null) throw new Error("Not logged in");
+
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=9999&order=DATE&orderDirection=ASC`, { headers });
+	if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
+	const data = (await res.json()) as PlaylistItemsResponse;
+	return data.items;
+}
+
+export async function removeFromPlaylist(playlistUUID: string, removeIndices: number[]): Promise<boolean> {
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+
+	const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers });
+	if (!playlistRes.ok) return false;
+
+	const etag = playlistRes.headers.get("etag");
+	if (etag === null) return false;
+
+	const indices = removeIndices.join(",");
+	const deleteRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items/${indices}?${queryArgs}`, {
+		method: "DELETE",
+		headers: {
+			...headers,
+			"If-None-Match": etag,
+		},
+	});
+
+	return deleteRes.ok;
+}
+
+export async function removeFromFavorites(trackIds: number[]): Promise<boolean> {
+	const userId = getUserId();
+	if (userId === null) return false;
+
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+
+	for (const trackId of trackIds) {
+		const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
+			method: "DELETE",
+			headers,
+		});
+		if (!res.ok) return false;
+	}
+	return true;
+}
+
+export interface StreamInfo {
+	bitDepth: number;
+	sampleRate: number;
+}
+
+export async function fetchStreamInfo(trackId: number, audioQuality: string): Promise<StreamInfo | null> {
+	try {
+		const info = await TidalApi.playbackInfo(trackId as unknown as redux.ItemId, audioQuality as redux.AudioQuality);
+		if (info === undefined) return null;
+		return { bitDepth: info.bitDepth ?? 0, sampleRate: info.sampleRate ?? 0 };
+	} catch {
+		return null;
+	}
+}
+
+export function updateReduxAfterRemoval(playlistUUID: string, removeIndices: number[]): void {
+	redux.actions["content/REMOVE_MEDIA_ITEMS_FROM_PLAYLIST_SUCCESS"]({
+		currentDirection: "ASC",
+		currentOrder: "INDEX",
+		playlistUUID,
+		removeIndices,
+	});
+}
