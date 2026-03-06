@@ -31,6 +31,10 @@ Find and remove duplicate tracks from your Tidal playlists and favorites.
 - **Batch scanning** — select multiple playlists and favorites to scan at once
 - **Stream quality enrichment** — when tracks share the same quality tier, fetches actual stream info (bit depth / sample rate) to help differentiate
 
+**Demo:**
+
+https://github.com/user-attachments/assets/7d61dd29-4d74-4902-a06b-0492816e8898
+
 ---
 
 ### PlaylistIndicator
