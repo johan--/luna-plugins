@@ -18,6 +18,21 @@ https://github.com/user-attachments/assets/e247e855-11e3-4216-8a31-6c0f641f2f8d
 
 ---
 
+### DedupPlaylist
+
+Find and remove duplicate tracks from your Tidal playlists and favorites.
+
+**The Problem:** Over time, playlists accumulate duplicate tracks — the same song added twice, re-releases, or remastered versions sitting alongside originals. Tidal provides no built-in way to detect or clean these up.
+
+**Features:**
+- **Multiple detection strategies** — find duplicates by track ID, ISRC code, title + artist match, or remaster detection (e.g. "Angel" vs "Angel (Remastered 2015)")
+- **Keep strategy** — choose which duplicate to keep: best quality, oldest (first occurrence), or newest (last occurrence)
+- **Review before removing** — a modal shows all detected duplicate groups with track details (quality, bit depth, sample rate, album, year) so you can toggle which tracks to keep or remove before confirming
+- **Batch scanning** — select multiple playlists and favorites to scan at once
+- **Stream quality enrichment** — when tracks share the same quality tier, fetches actual stream info (bit depth / sample rate) to help differentiate
+
+---
+
 ### PlaylistIndicator
 
 Shows which playlists already contain a track in the "Add to Playlist" menu.
@@ -84,6 +99,10 @@ https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.playlis
 
 ```
 https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.scroll-to-playing
+```
+
+```
+https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.dedup-playlist
 ```
 
 ```
