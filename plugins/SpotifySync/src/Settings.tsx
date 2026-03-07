@@ -13,7 +13,8 @@ import {
 	isLoggedIn,
 	clearAuth,
 } from "./state";
-import { buildAuthUrl, extractCodeFromUrl, exchangeCode } from "./spotifyAuth";
+import { startAuthFlow } from "./spotifyAuth";
+import { unloads as pluginUnloads } from "./index";
 import { getPlaylists, getMe, type SpotifyPlaylist } from "./spotifyApi";
 import { fetchUserPlaylists, type TidalPlaylist } from "./tidalApi";
 import { prepareAll, executeAll, type SyncPrepResult, type SyncPlaylistResult } from "./sync";
@@ -34,7 +35,7 @@ export const Settings = () => {
 
 	// Auth flow state
 	const [awaitingCallback, setAwaitingCallback] = useState(false);
-	const [callbackUrlInput, setCallbackUrlInput] = useState("");
+	const authCancelRef = useRef<(() => void) | null>(null);
 
 	// Sync state
 	const [syncing, setSyncing] = useState(false);
@@ -68,33 +69,24 @@ export const Settings = () => {
 		}
 		setError("");
 		setClientId(clientIdInput.trim());
+		setAwaitingCallback(true);
 		try {
-			const authUrl = await buildAuthUrl();
-			window.open(authUrl, "_blank");
-			setAwaitingCallback(true);
-		} catch (err) {
-			setError(err instanceof Error ? err.message : String(err));
-		}
-	};
-
-	const handleSubmitCallback = async () => {
-		setError("");
-		const code = extractCodeFromUrl(callbackUrlInput.trim());
-		if (!code) {
-			setError("Could not find authorization code in the URL. Make sure you copied the full URL.");
-			return;
-		}
-		try {
-			await exchangeCode(code);
+			const { promise, cancel } = startAuthFlow(pluginUnloads);
+			authCancelRef.current = cancel;
+			await promise;
 			setAwaitingCallback(false);
-			setCallbackUrlInput("");
 			setLoggedIn(true);
 		} catch (err) {
+			setAwaitingCallback(false);
+			if (err instanceof Error && err.message === "Auth flow cancelled") return;
 			setError(err instanceof Error ? err.message : String(err));
+		} finally {
+			authCancelRef.current = null;
 		}
 	};
 
 	const handleDisconnect = () => {
+		authCancelRef.current?.();
 		clearAuth();
 		setLoggedIn(false);
 		setUserName("");
@@ -103,7 +95,6 @@ export const Settings = () => {
 		setSelected(new Set());
 		setError("");
 		setAwaitingCallback(false);
-		setCallbackUrlInput("");
 	};
 
 	const togglePlaylist = (id: string) => {
@@ -235,7 +226,6 @@ export const Settings = () => {
 						<>
 							{!awaitingCallback ? (
 								<>
-									{/* Step 1: Client ID + Login */}
 									<div style={{ marginBottom: "8px" }}>
 										<label style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", display: "block", marginBottom: "4px" }}>
 											Client ID (from{" "}
@@ -252,7 +242,7 @@ export const Settings = () => {
 										<div style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px", marginBottom: "6px" }}>
 											Add{" "}
 											<code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: "2px" }}>
-												http://127.0.0.1:8888/callback
+												tidaLuna://spotify-callback
 											</code>{" "}
 											as a Redirect URI in your app settings
 										</div>
@@ -280,56 +270,29 @@ export const Settings = () => {
 									</button>
 								</>
 							) : (
-								<>
-									{/* Step 2: Paste callback URL */}
-									<div style={{ marginBottom: "8px" }}>
-										<label style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", display: "block", marginBottom: "4px" }}>
-											After logging in, copy the URL from your browser and paste it here
-										</label>
-										<input
-											type="text"
-											value={callbackUrlInput}
-											onChange={(e) => setCallbackUrlInput(e.target.value)}
-											placeholder="Paste the callback URL here (http://127.0.0.1:8888/callback?code=...)"
-											style={inputStyle}
-										/>
-									</div>
-									<div style={{ display: "flex", gap: "8px" }}>
-										<button
-											onClick={handleSubmitCallback}
-											disabled={!callbackUrlInput.trim()}
-											style={{
-												padding: "8px 20px",
-												borderRadius: "4px",
-												border: "none",
-												background: callbackUrlInput.trim() ? "#1db954" : "rgba(255,255,255,0.1)",
-												color: "#fff",
-												cursor: callbackUrlInput.trim() ? "pointer" : "not-allowed",
-												fontSize: "14px",
-											}}
-										>
-											Connect
-										</button>
-										<button
-											onClick={() => {
-												setAwaitingCallback(false);
-												setCallbackUrlInput("");
-												setError("");
-											}}
-											style={{
-												padding: "8px 20px",
-												borderRadius: "4px",
-												border: "1px solid rgba(255,255,255,0.2)",
-												background: "transparent",
-												color: "rgba(255,255,255,0.6)",
-												cursor: "pointer",
-												fontSize: "14px",
-											}}
-										>
-											Cancel
-										</button>
-									</div>
-								</>
+								<div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+									<span style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px" }}>
+										Waiting for Spotify authorization...
+									</span>
+									<button
+										onClick={() => {
+											authCancelRef.current?.();
+											setAwaitingCallback(false);
+											setError("");
+										}}
+										style={{
+											padding: "4px 12px",
+											borderRadius: "4px",
+											border: "1px solid rgba(255,255,255,0.2)",
+											background: "transparent",
+											color: "rgba(255,255,255,0.6)",
+											cursor: "pointer",
+											fontSize: "12px",
+										}}
+									>
+										Cancel
+									</button>
+								</div>
 							)}
 						</>
 					) : (

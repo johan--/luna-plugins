@@ -10,10 +10,11 @@ import {
 	setCodeVerifier,
 	clearAuth,
 } from "./state";
+import type { LunaUnloads } from "@luna/core";
 
 const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
 const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
-const REDIRECT_URI = "http://127.0.0.1:8888/callback";
+const REDIRECT_URI = "tidaLuna://spotify-callback";
 const SCOPES = "playlist-read-private user-library-read";
 
 const VERIFIER_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
@@ -30,8 +31,7 @@ async function generateCodeChallenge(verifier: string): Promise<string> {
 	return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** Builds the Spotify authorize URL and stores the PKCE verifier. Returns the URL to open. */
-export async function buildAuthUrl(): Promise<string> {
+async function buildAuthUrl(): Promise<string> {
 	const verifier = generateCodeVerifier();
 	setCodeVerifier(verifier);
 	const challenge = await generateCodeChallenge(verifier);
@@ -48,18 +48,61 @@ export async function buildAuthUrl(): Promise<string> {
 	return `${SPOTIFY_AUTH_URL}?${params.toString()}`;
 }
 
-/** Extract the authorization code from a callback URL pasted by the user. */
-export function extractCodeFromUrl(callbackUrl: string): string | null {
-	try {
-		const url = new URL(callbackUrl);
-		return url.searchParams.get("code");
-	} catch {
-		return null;
-	}
+/** Starts the full OAuth flow: opens browser, listens for protocol callback, exchanges code. */
+export function startAuthFlow(unloads: LunaUnloads): { promise: Promise<void>; cancel: () => void } {
+	let unloadListener: (() => void) | undefined;
+	let rejectPromise: ((err: Error) => void) | undefined;
+
+	const promise = new Promise<void>((resolve, reject) => {
+		rejectPromise = reject;
+
+		buildAuthUrl()
+			.then((authUrl) => {
+				unloadListener = __ipcRenderer.on("__Luna.openUrl", (url: string) => {
+					if (!url.toLowerCase().startsWith("tidaluna://spotify-callback")) return;
+
+					unloadListener?.();
+					unloadListener = undefined;
+
+					try {
+						const parsed = new URL(url);
+						const error = parsed.searchParams.get("error");
+						if (error) {
+							reject(new Error(`Spotify authorization denied: ${error}`));
+							return;
+						}
+						const code = parsed.searchParams.get("code");
+						if (!code) {
+							reject(new Error("No authorization code in callback URL"));
+							return;
+						}
+						exchangeCode(code).then(resolve).catch(reject);
+					} catch (err) {
+						reject(err);
+					}
+				});
+
+				unloads.add(unloadListener);
+				window.open(authUrl, "_blank");
+			})
+			.catch((err) => {
+				unloadListener?.();
+				unloadListener = undefined;
+				reject(err);
+			});
+	});
+
+	return {
+		promise,
+		cancel: () => {
+			unloadListener?.();
+			unloadListener = undefined;
+			rejectPromise?.(new Error("Auth flow cancelled"));
+		},
+	};
 }
 
-/** Exchange an authorization code for tokens. */
-export async function exchangeCode(code: string): Promise<void> {
+async function exchangeCode(code: string): Promise<void> {
 	const body = new URLSearchParams({
 		client_id: clientId,
 		grant_type: "authorization_code",
