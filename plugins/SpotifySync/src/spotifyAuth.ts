@@ -1,0 +1,125 @@
+import {
+	clientId,
+	codeVerifier,
+	accessToken,
+	refreshToken,
+	tokenExpiry,
+	setAccessToken,
+	setRefreshToken,
+	setTokenExpiry,
+	setCodeVerifier,
+	clearAuth,
+} from "./state";
+
+const SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize";
+const SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token";
+const REDIRECT_URI = "http://127.0.0.1:8888/callback";
+const SCOPES = "playlist-read-private user-library-read";
+
+const VERIFIER_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+
+function generateCodeVerifier(): string {
+	const bytes = new Uint8Array(96);
+	crypto.getRandomValues(bytes);
+	return Array.from(bytes, (byte) => VERIFIER_CHARS[byte % 66]).join("");
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+	const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+	const base64 = btoa(String.fromCharCode(...new Uint8Array(hash)));
+	return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Builds the Spotify authorize URL and stores the PKCE verifier. Returns the URL to open. */
+export async function buildAuthUrl(): Promise<string> {
+	const verifier = generateCodeVerifier();
+	setCodeVerifier(verifier);
+	const challenge = await generateCodeChallenge(verifier);
+
+	const params = new URLSearchParams({
+		client_id: clientId,
+		response_type: "code",
+		redirect_uri: REDIRECT_URI,
+		scope: SCOPES,
+		code_challenge_method: "S256",
+		code_challenge: challenge,
+	});
+
+	return `${SPOTIFY_AUTH_URL}?${params.toString()}`;
+}
+
+/** Extract the authorization code from a callback URL pasted by the user. */
+export function extractCodeFromUrl(callbackUrl: string): string | null {
+	try {
+		const url = new URL(callbackUrl);
+		return url.searchParams.get("code");
+	} catch {
+		return null;
+	}
+}
+
+/** Exchange an authorization code for tokens. */
+export async function exchangeCode(code: string): Promise<void> {
+	const body = new URLSearchParams({
+		client_id: clientId,
+		grant_type: "authorization_code",
+		code,
+		redirect_uri: REDIRECT_URI,
+		code_verifier: codeVerifier,
+	});
+
+	const response = await fetch(SPOTIFY_TOKEN_URL, {
+		method: "POST",
+		headers: { "Content-Type": "application/x-www-form-urlencoded" },
+		body: body.toString(),
+	});
+
+	if (!response.ok) {
+		throw new Error(`Token exchange failed: ${response.status}`);
+	}
+	const data = await response.json();
+	setAccessToken(data.access_token);
+	setRefreshToken(data.refresh_token);
+	setTokenExpiry(Date.now() + data.expires_in * 1000);
+}
+
+export async function refreshAccessToken(): Promise<void> {
+	const body = new URLSearchParams({
+		grant_type: "refresh_token",
+		refresh_token: refreshToken,
+		client_id: clientId,
+	});
+
+	let response: Response;
+	try {
+		response = await fetch(SPOTIFY_TOKEN_URL, {
+			method: "POST",
+			headers: { "Content-Type": "application/x-www-form-urlencoded" },
+			body: body.toString(),
+		});
+	} catch (err) {
+		clearAuth();
+		throw err;
+	}
+
+	if (!response.ok) {
+		clearAuth();
+		throw new Error(`Token refresh failed: ${response.status} ${response.statusText}`);
+	}
+
+	const data = await response.json();
+	setAccessToken(data.access_token);
+	setTokenExpiry(Date.now() + data.expires_in * 1000);
+	if (data.refresh_token) {
+		setRefreshToken(data.refresh_token);
+	}
+}
+
+export async function ensureValidToken(): Promise<void> {
+	if (!accessToken) {
+		throw new Error("Not logged in");
+	}
+	if (Date.now() >= tokenExpiry - 60_000) {
+		await refreshAccessToken();
+	}
+}
