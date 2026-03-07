@@ -50,7 +50,11 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 		if (phase === "confirm") {
 			const initial = new Map<string, Set<number>>();
 			for (const prep of prepResults) {
-				initial.set(prep.playlistName, new Set(prep.tracksToAdd.map((t) => t.tidalId)));
+				// Only check tracks that don't have a similar existing version
+				initial.set(
+					prep.playlistName,
+					new Set(prep.tracksToAdd.filter((t) => !t.similarExisting).map((t) => t.tidalId)),
+				);
 			}
 			setChecked(initial);
 		}
@@ -170,7 +174,7 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 													borderRadius: "4px",
 												}}
 											>
-												{prep.tracksToAdd.map((track) => (
+												{[...prep.tracksToAdd].sort((a, b) => (a.similarExisting ? -1 : 0) - (b.similarExisting ? -1 : 0)).map((track) => (
 													<label
 														key={track.tidalId}
 														style={{
@@ -179,18 +183,29 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 															padding: "4px 8px",
 															cursor: "pointer",
 															borderBottom: "1px solid rgba(255,255,255,0.04)",
-															background: checkedSet.has(track.tidalId) ? "rgba(29,185,84,0.05)" : "transparent",
+															background: checkedSet.has(track.tidalId)
+																? "rgba(29,185,84,0.05)"
+																: track.similarExisting
+																	? "rgba(255,200,100,0.03)"
+																	: "transparent",
 														}}
 													>
 														<input
 															type="checkbox"
 															checked={checkedSet.has(track.tidalId)}
 															onChange={() => toggleTrack(prep.playlistName, track.tidalId)}
-															style={{ marginRight: "8px" }}
+															style={{ marginRight: "8px", flexShrink: 0 }}
 														/>
-														<span style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px" }}>
-															{track.description}
-														</span>
+														<div style={{ minWidth: 0 }}>
+															<span style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px" }}>
+																{track.description}
+															</span>
+															{track.similarExisting && (
+																<div style={{ color: "rgba(255,200,100,0.7)", fontSize: "11px", marginTop: "1px" }}>
+																	Similar version exists: {track.similarExisting}
+																</div>
+															)}
+														</div>
 													</label>
 												))}
 											</div>

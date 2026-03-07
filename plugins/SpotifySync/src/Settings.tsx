@@ -8,6 +8,8 @@ import {
 	setSyncFavorites,
 	syncMode as initSyncMode,
 	setSyncMode,
+	skipSimilar as initSkipSimilar,
+	setSkipSimilar,
 	isLoggedIn,
 	clearAuth,
 } from "./state";
@@ -28,6 +30,7 @@ export const Settings = () => {
 	const [error, setError] = useState("");
 	const [doSyncFavorites, setDoSyncFavorites] = useState(initSyncFavorites);
 	const [mode, setMode] = useState<"auto" | "manual">(initSyncMode);
+	const [doSkipSimilar, setDoSkipSimilar] = useState(initSkipSimilar);
 
 	// Auth flow state
 	const [awaitingCallback, setAwaitingCallback] = useState(false);
@@ -151,10 +154,16 @@ export const Settings = () => {
 				return;
 			}
 
-			// Auto mode: execute immediately
+			// Auto mode: optionally filter out tracks with similar existing versions
+			const filteredPreps = doSkipSimilar
+				? preps.map((prep) => ({
+						...prep,
+						tracksToAdd: prep.tracksToAdd.filter((t) => !t.similarExisting),
+					}))
+				: preps;
 			setProgressMessage("Adding tracks...");
 			await executeAll(
-				preps,
+				filteredPreps,
 				setProgressMessage,
 				(r) => setResults((prev) => [...prev, r]),
 				abort.signal,
@@ -369,6 +378,16 @@ export const Settings = () => {
 								const newMode = e.target.checked ? "manual" : "auto";
 								setSyncMode(newMode);
 								setMode(newMode);
+							}}
+						/>
+
+						<LunaSwitchSetting
+							title="Skip similar versions"
+							desc="Skip tracks when a similar version (e.g. remaster) already exists"
+							defaultChecked={initSkipSimilar}
+							onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+								setSkipSimilar(e.target.checked);
+								setDoSkipSimilar(e.target.checked);
 							}}
 						/>
 

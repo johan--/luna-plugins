@@ -7,6 +7,13 @@ export interface TidalPlaylist {
 	type: string;
 }
 
+export interface TidalTrackInfo {
+	id: number;
+	title: string;
+	duration: number; // seconds
+	artists: { name: string }[];
+}
+
 function getUserId(): number | null {
 	const state = redux.store.getState();
 	return state.session?.userId ?? null;
@@ -25,14 +32,30 @@ export async function fetchUserPlaylists(): Promise<TidalPlaylist[]> {
 	return data.items;
 }
 
-export async function fetchPlaylistTrackIds(playlistUUID: string): Promise<number[]> {
+export async function fetchPlaylistTracks(playlistUUID: string): Promise<TidalTrackInfo[]> {
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const res = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=-1`, { headers });
-	if (!res.ok) throw new Error(`Failed to fetch playlist items: ${res.status}`);
+	const tracks: TidalTrackInfo[] = [];
+	let offset = 0;
+	const limit = 100;
 
-	const data = (await res.json()) as { items: { item: { id: number } }[] };
-	return data.items.map((i) => i.item.id);
+	while (true) {
+		const res = await fetch(
+			`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=${limit}&offset=${offset}`,
+			{ headers },
+		);
+		if (!res.ok) throw new Error(`Failed to fetch playlist items: ${res.status}`);
+		const data = (await res.json()) as { items: { item: TidalTrackInfo }[] };
+		const items = data.items ?? [];
+		if (items.length === 0) break;
+		for (const item of items) {
+			tracks.push({ id: item.item.id, title: item.item.title, duration: item.item.duration, artists: item.item.artists });
+		}
+		if (items.length < limit) break;
+		offset += limit;
+	}
+
+	return tracks;
 }
 
 export async function addTracksToPlaylist(playlistUUID: string, trackIds: number[], onProgress?: (added: number, total: number) => void): Promise<void> {
@@ -94,13 +117,13 @@ export function createPlaylist(title: string, description?: string): Promise<str
 	});
 }
 
-export async function fetchFavoriteTrackIds(onProgress?: (message: string) => void): Promise<number[]> {
+export async function fetchFavoriteTracks(onProgress?: (message: string) => void): Promise<TidalTrackInfo[]> {
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const ids: number[] = [];
+	const tracks: TidalTrackInfo[] = [];
 	let offset = 0;
 	const limit = 100;
 
@@ -110,16 +133,18 @@ export async function fetchFavoriteTrackIds(onProgress?: (message: string) => vo
 			{ headers },
 		);
 		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
-		const data = (await res.json()) as { items: { item: { id: number } }[] };
+		const data = (await res.json()) as { items: { item: TidalTrackInfo }[] };
 		const items = data.items ?? [];
 		if (items.length === 0) break;
-		for (const item of items) ids.push(item.item.id);
-		onProgress?.(`Fetching Tidal favorites: ${ids.length} loaded...`);
+		for (const item of items) {
+			tracks.push({ id: item.item.id, title: item.item.title, duration: item.item.duration, artists: item.item.artists });
+		}
+		onProgress?.(`Fetching Tidal favorites: ${tracks.length} loaded...`);
 		if (items.length < limit) break;
 		offset += limit;
 	}
 
-	return ids;
+	return tracks;
 }
 
 export function addToFavorites(trackIds: number[]): void {

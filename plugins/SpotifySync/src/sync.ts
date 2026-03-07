@@ -1,14 +1,15 @@
 import type { SpotifyPlaylist } from "./spotifyApi";
 import { getPlaylistTracks, getLikedTracks } from "./spotifyApi";
 import { matchAllTracks } from "./matching";
-import { fetchUserPlaylists, fetchPlaylistTrackIds, fetchFavoriteTrackIds, addTracksToPlaylist, createPlaylist, addToFavorites } from "./tidalApi";
-import type { TidalPlaylist } from "./tidalApi";
+import { fetchUserPlaylists, fetchPlaylistTracks, fetchFavoriteTracks, addTracksToPlaylist, createPlaylist, addToFavorites } from "./tidalApi";
+import type { TidalPlaylist, TidalTrackInfo } from "./tidalApi";
 
 // --- Types ---
 
 export interface TrackToAdd {
 	tidalId: number;
 	description: string;
+	similarExisting?: string; // description of similar track already present (e.g. remaster)
 }
 
 export interface SyncPrepResult {
@@ -35,7 +36,86 @@ export interface SyncPlaylistResult {
 
 export type ProgressCallback = (message: string) => void;
 
-// --- Prepare functions (matching only, no side effects except playlist existence check) ---
+// --- Similarity helpers ---
+
+/** Builds a key for fuzzy track comparison, stripping version/remaster/year suffixes */
+function trackSimilarityKey(name: string, artist: string): string {
+	const n = name
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.split("-")[0]
+		.split("(")[0]
+		.split("[")[0]
+		.trim()
+		.toLowerCase();
+	const a = artist
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.split("&")[0]
+		.split(",")[0]
+		.split("-")[0]
+		.split("(")[0]
+		.split("[")[0]
+		.trim()
+		.toLowerCase();
+	return `${n}|${a}`;
+}
+
+interface SimilarTrackEntry {
+	description: string;
+	duration: number; // seconds
+}
+
+/** Builds a similarity index from existing Tidal tracks */
+function buildSimilarityIndex(existingTracks: TidalTrackInfo[]): Map<string, SimilarTrackEntry[]> {
+	const index = new Map<string, SimilarTrackEntry[]>();
+	for (const track of existingTracks) {
+		const key = trackSimilarityKey(track.title, track.artists[0]?.name ?? "");
+		const entry: SimilarTrackEntry = {
+			description: `${track.artists.map((a) => a.name).join(", ")} - ${track.title}`,
+			duration: track.duration,
+		};
+		const list = index.get(key);
+		if (list) list.push(entry);
+		else index.set(key, [entry]);
+	}
+	return index;
+}
+
+/**
+ * Check if a Spotify track has a similar existing version.
+ * Returns undefined if no similar track, or the description if it's a different version.
+ * If name+artist match AND duration is within 2s, it's the same track — treat as already present (return "exact").
+ * If name+artist match but duration differs, it's a different version — return the description.
+ */
+function checkSimilarity(
+	similarityIndex: Map<string, SimilarTrackEntry[]>,
+	spotifyName: string,
+	spotifyArtist: string,
+	spotifyDurationMs: number,
+): "exact" | string | undefined {
+	const key = trackSimilarityKey(spotifyName, spotifyArtist);
+	const entries = similarityIndex.get(key);
+	if (!entries) return undefined;
+
+	const spotifyDurationSec = spotifyDurationMs / 1000;
+	// Check if any existing track has a matching duration (same recording, different ID)
+	for (const entry of entries) {
+		if (Math.abs(entry.duration - spotifyDurationSec) < 2) return "exact";
+	}
+	// Duration differs — it's a different version; show what's different
+	const closest = entries.reduce((a, b) =>
+		Math.abs(a.duration - spotifyDurationSec) < Math.abs(b.duration - spotifyDurationSec) ? a : b,
+	);
+	const formatDuration = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+	const diff = Math.abs(closest.duration - spotifyDurationSec);
+	const diffStr = diff < 60
+		? `${Math.round(diff)}s`
+		: `${formatDuration(diff)}`;
+	return `${closest.description} (existing: ${formatDuration(closest.duration)}, new: ${formatDuration(spotifyDurationSec)}, ${diffStr} difference)`;
+}
+
+// --- Prepare functions ---
 
 async function preparePlaylistSync(
 	spotifyPlaylist: SpotifyPlaylist,
@@ -52,18 +132,23 @@ async function preparePlaylistSync(
 	});
 	if (signal?.aborted) throw new DOMException("Sync cancelled", "AbortError");
 
-	// 2. Check existing Tidal playlist
+	// 2. Check existing Tidal playlist — fetch full track metadata
+	let existingTracks: TidalTrackInfo[] = [];
 	let existingTrackIds = new Set<number>();
 	let existingUUID = "";
 	const existingPlaylist = tidalPlaylists.find((p) => p.title === name);
 
 	if (existingPlaylist) {
-		onProgress(`Found existing Tidal playlist "${name}", fetching track IDs...`);
-		const trackIdList = await fetchPlaylistTrackIds(existingPlaylist.uuid);
-		existingTrackIds = new Set(trackIdList);
+		onProgress(`Found existing Tidal playlist "${name}", fetching tracks...`);
+		existingTracks = await fetchPlaylistTracks(existingPlaylist.uuid);
+		existingTrackIds = new Set(existingTracks.map((t) => t.id));
 		existingUUID = existingPlaylist.uuid;
+		onProgress(`Tidal playlist "${name}" has ${existingTrackIds.size} existing tracks`);
 	}
 	if (signal?.aborted) throw new DOMException("Sync cancelled", "AbortError");
+
+	// Build similarity index for fuzzy comparison
+	const similarityIndex = buildSimilarityIndex(existingTracks);
 
 	// 3. Match all tracks
 	onProgress(`Matching tracks for "${name}"...`);
@@ -71,7 +156,7 @@ async function preparePlaylistSync(
 		onProgress(`Matching "${name}": ${matched}/${total} matched, ${unmatchedList.length} unmatched`);
 	}, signal);
 
-	// 4. Compute results
+	// 4. Compute results with similarity detection
 	let matched = 0;
 	let unmatched = 0;
 	let alreadyPresent = 0;
@@ -82,17 +167,43 @@ async function preparePlaylistSync(
 	for (const result of matchResults) {
 		if (result === undefined) continue;
 		const trackDesc = `${result.spotifyTrack.artists.map((a) => a.name).join(", ")} - ${result.spotifyTrack.name}`;
+
 		if (result.tidalId !== null) {
 			matched++;
 			if (existingTrackIds.has(result.tidalId)) {
 				alreadyPresent++;
 			} else if (!seenIds.has(result.tidalId)) {
-				tracksToAdd.push({ tidalId: result.tidalId, description: trackDesc });
-				seenIds.add(result.tidalId);
+				const sim = checkSimilarity(
+					similarityIndex,
+					result.spotifyTrack.name,
+					result.spotifyTrack.artists[0]?.name ?? "",
+					result.spotifyTrack.duration_ms,
+				);
+				if (sim === "exact") {
+					// Same name+artist+duration — silently skip
+					alreadyPresent++;
+				} else {
+					tracksToAdd.push({
+						tidalId: result.tidalId,
+						description: trackDesc,
+						similarExisting: sim, // undefined if no similar, description if different version
+					});
+					seenIds.add(result.tidalId);
+				}
 			}
 		} else {
-			unmatched++;
-			unmatchedTracks.push(trackDesc);
+			const sim = checkSimilarity(
+				similarityIndex,
+				result.spotifyTrack.name,
+				result.spotifyTrack.artists[0]?.name ?? "",
+				result.spotifyTrack.duration_ms,
+			);
+			if (sim !== undefined) {
+				alreadyPresent++;
+			} else {
+				unmatched++;
+				unmatchedTracks.push(trackDesc);
+			}
 		}
 	}
 
@@ -120,12 +231,15 @@ async function prepareFavoritesSync(
 	});
 	if (signal?.aborted) throw new DOMException("Sync cancelled", "AbortError");
 
-	// 2. Fetch existing Tidal favorites
+	// 2. Fetch existing Tidal favorites with metadata
 	onProgress("Fetching existing Tidal favorites...");
-	const existingFavIds = await fetchFavoriteTrackIds(onProgress);
-	const existingTrackIds = new Set(existingFavIds);
+	const existingTracks = await fetchFavoriteTracks(onProgress);
+	const existingTrackIds = new Set(existingTracks.map((t) => t.id));
 	onProgress(`Found ${existingTrackIds.size} existing Tidal favorites`);
 	if (signal?.aborted) throw new DOMException("Sync cancelled", "AbortError");
+
+	// Build similarity index
+	const similarityIndex = buildSimilarityIndex(existingTracks);
 
 	// 3. Match tracks
 	onProgress("Matching liked tracks...");
@@ -133,7 +247,7 @@ async function prepareFavoritesSync(
 		onProgress(`Matching favorites: ${matched}/${total} matched, ${unmatchedList.length} unmatched`);
 	}, signal);
 
-	// 4. Collect results
+	// 4. Collect results with similarity detection
 	let matched = 0;
 	let unmatched = 0;
 	let alreadyPresent = 0;
@@ -144,17 +258,42 @@ async function prepareFavoritesSync(
 	for (const result of matchResults) {
 		if (result === undefined) continue;
 		const trackDesc = `${result.spotifyTrack.artists.map((a) => a.name).join(", ")} - ${result.spotifyTrack.name}`;
+
 		if (result.tidalId !== null) {
 			matched++;
 			if (existingTrackIds.has(result.tidalId)) {
 				alreadyPresent++;
 			} else if (!seenIds.has(result.tidalId)) {
-				tracksToAdd.push({ tidalId: result.tidalId, description: trackDesc });
-				seenIds.add(result.tidalId);
+				const sim = checkSimilarity(
+					similarityIndex,
+					result.spotifyTrack.name,
+					result.spotifyTrack.artists[0]?.name ?? "",
+					result.spotifyTrack.duration_ms,
+				);
+				if (sim === "exact") {
+					alreadyPresent++;
+				} else {
+					tracksToAdd.push({
+						tidalId: result.tidalId,
+						description: trackDesc,
+						similarExisting: sim,
+					});
+					seenIds.add(result.tidalId);
+				}
 			}
 		} else {
-			unmatched++;
-			unmatchedTracks.push(trackDesc);
+			const sim = checkSimilarity(
+				similarityIndex,
+				result.spotifyTrack.name,
+				result.spotifyTrack.artists[0]?.name ?? "",
+				result.spotifyTrack.duration_ms,
+			);
+			if (sim !== undefined) {
+				alreadyPresent++;
+			} else {
+				unmatched++;
+				unmatchedTracks.push(trackDesc);
+			}
 		}
 	}
 
@@ -230,7 +369,7 @@ export async function prepareAll(
 	return results;
 }
 
-// --- Execute functions (actually add tracks) ---
+// --- Execute functions ---
 
 export async function executeAll(
 	prepResults: SyncPrepResult[],
