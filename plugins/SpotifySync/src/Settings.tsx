@@ -12,7 +12,11 @@ import {
 	setSkipSimilar,
 	isLoggedIn,
 	clearAuth,
+	clearSyncMemory,
+	saveSimilarDecisions,
+	getSimilarDecisions,
 } from "./state";
+import type { SimilarDecision } from "./state";
 import { startAuthFlow } from "./spotifyAuth";
 import { unloads as pluginUnloads } from "./index";
 import { getPlaylists, getMe, type SpotifyPlaylist } from "./spotifyApi";
@@ -159,6 +163,7 @@ export const Settings = () => {
 				(r) => setResults((prev) => [...prev, r]),
 				abort.signal,
 			);
+			saveDecisionsFromPreps(preps, filteredPreps);
 			setModalPhase("complete");
 		} catch (err) {
 			if (!(err instanceof DOMException && err.name === "AbortError")) {
@@ -185,6 +190,7 @@ export const Settings = () => {
 				(r) => setResults((prev) => [...prev, r]),
 				abort.signal,
 			);
+			saveDecisionsFromPreps(prepResults, filteredPreps);
 			setModalPhase("complete");
 		} catch (err) {
 			if (!(err instanceof DOMException && err.name === "AbortError")) {
@@ -200,6 +206,27 @@ export const Settings = () => {
 		abortRef.current?.abort();
 		setShowModal(false);
 		setSyncing(false);
+	};
+
+	const saveDecisionsFromPreps = (originalPreps: SyncPrepResult[], executedPreps: SyncPrepResult[]) => {
+		for (const original of originalPreps) {
+			const executed = executedPreps.find((p) => p.spotifyPlaylistId === original.spotifyPlaylistId);
+			const executedIds = new Set(executed?.tracksToAdd.map((t) => t.tidalId) ?? []);
+			const decisions = getSimilarDecisions(original.spotifyPlaylistId);
+			let changed = false;
+
+			for (const track of original.tracksToAdd) {
+				if (!track.similarExisting || track.similarExisting.length === 0) continue;
+				if (!track.spotifyTrackId) continue;
+				const decision: SimilarDecision = executedIds.has(track.tidalId) ? "add-new" : "keep-existing";
+				decisions[track.spotifyTrackId] = decision;
+				changed = true;
+			}
+
+			if (changed) {
+				saveSimilarDecisions(original.spotifyPlaylistId, decisions);
+			}
+		}
 	};
 
 	const tidalNames = new Set(tidalPlaylists.map((p) => p.title));
@@ -353,6 +380,30 @@ export const Settings = () => {
 								setDoSkipSimilar(e.target.checked);
 							}}
 						/>
+
+						<div style={{ padding: "8px 0" }}>
+							<button
+								onClick={() => {
+									clearSyncMemory();
+									setError("Sync memory cleared");
+									setTimeout(() => setError(""), 3000);
+								}}
+								style={{
+									padding: "6px 16px",
+									borderRadius: "4px",
+									border: "1px solid rgba(255,255,255,0.2)",
+									background: "transparent",
+									color: "rgba(255,255,255,0.6)",
+									cursor: "pointer",
+									fontSize: "12px",
+								}}
+							>
+								Clear sync memory
+							</button>
+							<span style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", marginLeft: "8px" }}>
+								Resets cached track matches and similar track decisions
+							</span>
+						</div>
 
 						{/* Playlist list with checkboxes */}
 						<div style={{ padding: "12px 0" }}>

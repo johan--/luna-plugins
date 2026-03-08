@@ -3,6 +3,7 @@ import { getPlaylistTracks, getLikedTracks } from "./spotifyApi";
 import { matchAllTracks } from "./matching";
 import { fetchUserPlaylists, fetchPlaylistTracks, fetchFavoriteTracks, addTracksToPlaylist, createPlaylist, addToFavorites, removeFromPlaylist, removeFromFavorites } from "./tidalApi";
 import type { TidalPlaylist, TidalTrackInfo } from "./tidalApi";
+import { getMatchCache, saveMatchCache, getSimilarDecisions } from "./state";
 
 // --- Types ---
 
@@ -15,6 +16,7 @@ export interface SimilarVersion {
 
 export interface TrackToAdd {
 	tidalId: number;
+	spotifyTrackId: string;
 	description: string;
 	duration: number; // seconds
 	similarExisting?: SimilarVersion[];
@@ -28,6 +30,7 @@ export interface TrackToRemove {
 
 export interface SyncPrepResult {
 	playlistName: string;
+	spotifyPlaylistId: string;
 	playlistDescription: string;
 	existingUUID: string; // empty if playlist needs to be created
 	isFavorites: boolean;
@@ -143,6 +146,9 @@ async function preparePlaylistSync(
 	signal?: AbortSignal,
 ): Promise<SyncPrepResult> {
 	const name = spotifyPlaylist.name;
+	const playlistKey = spotifyPlaylist.id;
+	const matchCache = getMatchCache(playlistKey);
+	const decisions = getSimilarDecisions(playlistKey);
 
 	// 1. Fetch Spotify tracks
 	onProgress(`Fetching Spotify tracks for "${name}"...`);
@@ -173,7 +179,10 @@ async function preparePlaylistSync(
 	onProgress(`Matching tracks for "${name}"...`);
 	const matchResults = await matchAllTracks(spotifyTracks, existingTrackIds, (matched, total, unmatchedList) => {
 		onProgress(`Matching "${name}": ${matched}/${total} matched, ${unmatchedList.length} unmatched`);
-	}, signal);
+	}, signal, matchCache);
+
+	// Save updated match cache
+	saveMatchCache(playlistKey, matchCache);
 
 	// 4. Compute results with similarity detection
 	let matched = 0;
@@ -202,13 +211,29 @@ async function preparePlaylistSync(
 					// Same name+artist+duration — silently skip
 					alreadyPresent++;
 				} else {
-					tracksToAdd.push({
-						tidalId: result.tidalId,
-						description: trackDesc,
-						duration: result.spotifyTrack.duration_ms / 1000,
-						similarExisting: sim === undefined ? undefined : sim,
-					});
-					seenIds.add(result.tidalId);
+					const spotifyId = result.spotifyTrack.id;
+					if (spotifyId && spotifyId in decisions) {
+						if (decisions[spotifyId] === "keep-existing") {
+							alreadyPresent++;
+						} else {
+							tracksToAdd.push({
+								tidalId: result.tidalId,
+								spotifyTrackId: spotifyId,
+								description: trackDesc,
+								duration: result.spotifyTrack.duration_ms / 1000,
+							});
+							seenIds.add(result.tidalId);
+						}
+					} else {
+						tracksToAdd.push({
+							tidalId: result.tidalId,
+							spotifyTrackId: spotifyId ?? "",
+							description: trackDesc,
+							duration: result.spotifyTrack.duration_ms / 1000,
+							similarExisting: sim === undefined ? undefined : sim,
+						});
+						seenIds.add(result.tidalId);
+					}
 				}
 			}
 		} else {
@@ -229,6 +254,7 @@ async function preparePlaylistSync(
 
 	return {
 		playlistName: name,
+		spotifyPlaylistId: playlistKey,
 		playlistDescription: spotifyPlaylist.description ?? "",
 		existingUUID,
 		isFavorites: false,
@@ -247,6 +273,9 @@ async function prepareFavoritesSync(
 ): Promise<SyncPrepResult> {
 	// 1. Fetch liked tracks
 	onProgress("Fetching Spotify liked tracks...");
+	const playlistKey = "favorites";
+	const matchCache = getMatchCache(playlistKey);
+	const decisions = getSimilarDecisions(playlistKey);
 	const spotifyTracks = await getLikedTracks((loaded, total) => {
 		onProgress(`Fetching liked tracks: ${loaded}/${total}`);
 	});
@@ -266,7 +295,9 @@ async function prepareFavoritesSync(
 	onProgress("Matching liked tracks...");
 	const matchResults = await matchAllTracks(spotifyTracks, existingTrackIds, (matched, total, unmatchedList) => {
 		onProgress(`Matching favorites: ${matched}/${total} matched, ${unmatchedList.length} unmatched`);
-	}, signal);
+	}, signal, matchCache);
+
+	saveMatchCache(playlistKey, matchCache);
 
 	// 4. Collect results with similarity detection
 	let matched = 0;
@@ -294,13 +325,29 @@ async function prepareFavoritesSync(
 				if (sim === "exact") {
 					alreadyPresent++;
 				} else {
-					tracksToAdd.push({
-						tidalId: result.tidalId,
-						description: trackDesc,
-						duration: result.spotifyTrack.duration_ms / 1000,
-						similarExisting: sim === undefined ? undefined : sim,
-					});
-					seenIds.add(result.tidalId);
+					const spotifyId = result.spotifyTrack.id;
+					if (spotifyId && spotifyId in decisions) {
+						if (decisions[spotifyId] === "keep-existing") {
+							alreadyPresent++;
+						} else {
+							tracksToAdd.push({
+								tidalId: result.tidalId,
+								spotifyTrackId: spotifyId,
+								description: trackDesc,
+								duration: result.spotifyTrack.duration_ms / 1000,
+							});
+							seenIds.add(result.tidalId);
+						}
+					} else {
+						tracksToAdd.push({
+							tidalId: result.tidalId,
+							spotifyTrackId: spotifyId ?? "",
+							description: trackDesc,
+							duration: result.spotifyTrack.duration_ms / 1000,
+							similarExisting: sim === undefined ? undefined : sim,
+						});
+						seenIds.add(result.tidalId);
+					}
 				}
 			}
 		} else {
@@ -321,6 +368,7 @@ async function prepareFavoritesSync(
 
 	return {
 		playlistName: "Favorites",
+		spotifyPlaylistId: "favorites",
 		playlistDescription: "",
 		existingUUID: "",
 		isFavorites: true,
@@ -355,6 +403,7 @@ export async function prepareAll(
 			if (error instanceof DOMException && error.name === "AbortError") break;
 			results.push({
 				playlistName: playlist.name,
+				spotifyPlaylistId: playlist.id,
 				playlistDescription: "",
 				existingUUID: "",
 				isFavorites: false,
@@ -377,6 +426,7 @@ export async function prepareAll(
 			if (!(error instanceof DOMException && error.name === "AbortError")) {
 				results.push({
 					playlistName: "Favorites",
+					spotifyPlaylistId: "favorites",
 					playlistDescription: "",
 					existingUUID: "",
 					isFavorites: true,

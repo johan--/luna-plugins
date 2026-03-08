@@ -181,6 +181,7 @@ export async function matchAllTracks(
 	existingTidalTrackIds: Set<number>,
 	onProgress?: (matched: number, total: number, unmatched: string[]) => void,
 	signal?: AbortSignal,
+	matchCache?: Record<string, number>,
 ): Promise<MatchResult[]> {
 	const sem = new Semaphore(10);
 	const results: MatchResult[] = new Array(spotifyTracks.length);
@@ -191,11 +192,28 @@ export async function matchAllTracks(
 	const matchOne = async (i: number) => {
 		if (signal?.aborted) return;
 		const st = spotifyTracks[i];
+
+		// Check match cache first
+		if (st.id && matchCache && st.id in matchCache) {
+			const cachedId = matchCache[st.id];
+			results[i] = { spotifyTrack: st, tidalId: cachedId };
+			matched++;
+			completed++;
+			if (completed % 10 === 0 || completed === spotifyTracks.length) {
+				onProgress?.(matched, spotifyTracks.length, unmatched);
+			}
+			return;
+		}
+
 		const tidalId = await matchSpotifyTrack(st, sem);
 		if (signal?.aborted) return;
 		results[i] = { spotifyTrack: st, tidalId };
 		if (tidalId !== null) {
 			matched++;
+			// Write successful match to cache
+			if (st.id && matchCache) {
+				matchCache[st.id] = tidalId;
+			}
 		} else {
 			unmatched.push(`${st.artists.map((a) => a.name).join(", ")} - ${st.name}`);
 		}

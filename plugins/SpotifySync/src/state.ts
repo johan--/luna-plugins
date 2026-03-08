@@ -56,6 +56,47 @@ export function clearAuth(): void {
 	setCodeVerifier("");
 }
 
+// --- Sync memory ---
+
+export type SimilarDecision = "keep-existing" | "add-new";
+
+export function getMatchCache(playlistKey: string): Record<string, number> {
+	try {
+		return JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}matched:${playlistKey}`) ?? "{}");
+	} catch {
+		return {};
+	}
+}
+
+export function saveMatchCache(playlistKey: string, cache: Record<string, number>): void {
+	localStorage.setItem(`${STORAGE_PREFIX}matched:${playlistKey}`, JSON.stringify(cache));
+}
+
+export function getSimilarDecisions(playlistKey: string): Record<string, SimilarDecision> {
+	try {
+		return JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}decisions:${playlistKey}`) ?? "{}");
+	} catch {
+		return {};
+	}
+}
+
+export function saveSimilarDecisions(playlistKey: string, decisions: Record<string, SimilarDecision>): void {
+	localStorage.setItem(`${STORAGE_PREFIX}decisions:${playlistKey}`, JSON.stringify(decisions));
+}
+
+export function clearSyncMemory(): void {
+	const keysToRemove: string[] = [];
+	for (let i = 0; i < localStorage.length; i++) {
+		const key = localStorage.key(i);
+		if (key && (key.startsWith(`${STORAGE_PREFIX}matched:`) || key.startsWith(`${STORAGE_PREFIX}decisions:`))) {
+			keysToRemove.push(key);
+		}
+	}
+	for (const key of keysToRemove) {
+		localStorage.removeItem(key);
+	}
+}
+
 export function isLoggedIn(): boolean {
 	return accessToken !== "" && Date.now() < tokenExpiry;
 }
