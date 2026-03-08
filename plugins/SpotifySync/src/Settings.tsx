@@ -149,7 +149,7 @@ export const Settings = () => {
 			const filteredPreps = doSkipSimilar
 				? preps.map((prep) => ({
 						...prep,
-						tracksToAdd: prep.tracksToAdd.filter((t) => !t.similarExisting),
+						tracksToAdd: prep.tracksToAdd.filter((t) => !t.similarExisting || t.similarExisting.length === 0),
 					}))
 				: preps;
 			setProgressMessage("Adding tracks...");

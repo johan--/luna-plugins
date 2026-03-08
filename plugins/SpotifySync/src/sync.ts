@@ -1,15 +1,29 @@
 import type { SpotifyPlaylist } from "./spotifyApi";
 import { getPlaylistTracks, getLikedTracks } from "./spotifyApi";
 import { matchAllTracks } from "./matching";
-import { fetchUserPlaylists, fetchPlaylistTracks, fetchFavoriteTracks, addTracksToPlaylist, createPlaylist, addToFavorites } from "./tidalApi";
+import { fetchUserPlaylists, fetchPlaylistTracks, fetchFavoriteTracks, addTracksToPlaylist, createPlaylist, addToFavorites, removeFromPlaylist, removeFromFavorites } from "./tidalApi";
 import type { TidalPlaylist, TidalTrackInfo } from "./tidalApi";
 
 // --- Types ---
 
+export interface SimilarVersion {
+	tidalId: number;
+	playlistIndex: number; // position in playlist (-1 for favorites)
+	description: string;
+	duration: number; // seconds
+}
+
 export interface TrackToAdd {
 	tidalId: number;
 	description: string;
-	similarExisting?: string; // description of similar track already present (e.g. remaster)
+	duration: number; // seconds
+	similarExisting?: SimilarVersion[];
+}
+
+export interface TrackToRemove {
+	tidalId: number;
+	playlistIndex: number;
+	description: string;
 }
 
 export interface SyncPrepResult {
@@ -21,6 +35,7 @@ export interface SyncPrepResult {
 	unmatched: number;
 	alreadyPresent: number;
 	tracksToAdd: TrackToAdd[];
+	tracksToRemove: TrackToRemove[];
 	unmatchedTracks: string[];
 }
 
@@ -29,8 +44,10 @@ export interface SyncPlaylistResult {
 	matched: number;
 	unmatched: number;
 	added: number;
+	removed: number;
 	alreadyPresent: number;
 	addedTracks: string[];
+	removedTracks: string[];
 	unmatchedTracks: string[];
 }
 
@@ -62,6 +79,8 @@ function trackSimilarityKey(name: string, artist: string): string {
 }
 
 interface SimilarTrackEntry {
+	tidalId: number;
+	playlistIndex: number;
 	description: string;
 	duration: number; // seconds
 }
@@ -69,9 +88,12 @@ interface SimilarTrackEntry {
 /** Builds a similarity index from existing Tidal tracks */
 function buildSimilarityIndex(existingTracks: TidalTrackInfo[]): Map<string, SimilarTrackEntry[]> {
 	const index = new Map<string, SimilarTrackEntry[]>();
-	for (const track of existingTracks) {
+	for (let i = 0; i < existingTracks.length; i++) {
+		const track = existingTracks[i];
 		const key = trackSimilarityKey(track.title, track.artists[0]?.name ?? "");
 		const entry: SimilarTrackEntry = {
+			tidalId: track.id,
+			playlistIndex: i,
 			description: `${track.artists.map((a) => a.name).join(", ")} - ${track.title}`,
 			duration: track.duration,
 		};
@@ -83,17 +105,17 @@ function buildSimilarityIndex(existingTracks: TidalTrackInfo[]): Map<string, Sim
 }
 
 /**
- * Check if a Spotify track has a similar existing version.
- * Returns undefined if no similar track, or the description if it's a different version.
- * If name+artist match AND duration is within 2s, it's the same track — treat as already present (return "exact").
- * If name+artist match but duration differs, it's a different version — return the description.
+ * Check if a Spotify track has similar existing versions.
+ * Returns "exact" if name+artist+duration match (same recording).
+ * Returns SimilarVersion[] if name+artist match but duration differs.
+ * Returns undefined if no similar track.
  */
 function checkSimilarity(
 	similarityIndex: Map<string, SimilarTrackEntry[]>,
 	spotifyName: string,
 	spotifyArtist: string,
 	spotifyDurationMs: number,
-): "exact" | string | undefined {
+): "exact" | SimilarVersion[] | undefined {
 	const key = trackSimilarityKey(spotifyName, spotifyArtist);
 	const entries = similarityIndex.get(key);
 	if (!entries) return undefined;
@@ -103,16 +125,13 @@ function checkSimilarity(
 	for (const entry of entries) {
 		if (Math.abs(entry.duration - spotifyDurationSec) < 2) return "exact";
 	}
-	// Duration differs — it's a different version; show what's different
-	const closest = entries.reduce((a, b) =>
-		Math.abs(a.duration - spotifyDurationSec) < Math.abs(b.duration - spotifyDurationSec) ? a : b,
-	);
-	const formatDuration = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-	const diff = Math.abs(closest.duration - spotifyDurationSec);
-	const diffStr = diff < 60
-		? `${Math.round(diff)}s`
-		: `${formatDuration(diff)}`;
-	return `${closest.description} (existing: ${formatDuration(closest.duration)}, new: ${formatDuration(spotifyDurationSec)}, ${diffStr} difference)`;
+	// Duration differs — return all similar versions
+	return entries.map((entry) => ({
+		tidalId: entry.tidalId,
+		playlistIndex: entry.playlistIndex,
+		description: entry.description,
+		duration: entry.duration,
+	}));
 }
 
 // --- Prepare functions ---
@@ -186,7 +205,8 @@ async function preparePlaylistSync(
 					tracksToAdd.push({
 						tidalId: result.tidalId,
 						description: trackDesc,
-						similarExisting: sim, // undefined if no similar, description if different version
+						duration: result.spotifyTrack.duration_ms / 1000,
+						similarExisting: sim === undefined ? undefined : sim,
 					});
 					seenIds.add(result.tidalId);
 				}
@@ -216,6 +236,7 @@ async function preparePlaylistSync(
 		unmatched,
 		alreadyPresent,
 		tracksToAdd,
+		tracksToRemove: [],
 		unmatchedTracks,
 	};
 }
@@ -276,7 +297,8 @@ async function prepareFavoritesSync(
 					tracksToAdd.push({
 						tidalId: result.tidalId,
 						description: trackDesc,
-						similarExisting: sim,
+						duration: result.spotifyTrack.duration_ms / 1000,
+						similarExisting: sim === undefined ? undefined : sim,
 					});
 					seenIds.add(result.tidalId);
 				}
@@ -306,6 +328,7 @@ async function prepareFavoritesSync(
 		unmatched,
 		alreadyPresent,
 		tracksToAdd,
+		tracksToRemove: [],
 		unmatchedTracks,
 	};
 }
@@ -339,6 +362,7 @@ export async function prepareAll(
 				unmatched: 0,
 				alreadyPresent: 0,
 				tracksToAdd: [],
+				tracksToRemove: [],
 				unmatchedTracks: [`Error: ${error instanceof Error ? error.message : String(error)}`],
 			});
 		}
@@ -360,6 +384,7 @@ export async function prepareAll(
 					unmatched: 0,
 					alreadyPresent: 0,
 					tracksToAdd: [],
+					tracksToRemove: [],
 					unmatchedTracks: [`Error: ${error instanceof Error ? error.message : String(error)}`],
 				});
 			}
@@ -384,8 +409,26 @@ export async function executeAll(
 
 		const trackIds = prep.tracksToAdd.map((t) => t.tidalId);
 		const addedDescriptions = prep.tracksToAdd.map((t) => t.description);
+		const removeDescriptions = prep.tracksToRemove.map((t) => t.description);
+		let removedCount = 0;
 
 		try {
+			// Phase 1: Remove tracks first (before adding)
+			if (prep.tracksToRemove.length > 0) {
+				if (prep.isFavorites) {
+					onProgress(`Removing ${prep.tracksToRemove.length} tracks from favorites...`);
+					const removeIds = prep.tracksToRemove.map((t) => t.tidalId);
+					const ok = await removeFromFavorites(removeIds);
+					if (ok) removedCount = prep.tracksToRemove.length;
+				} else if (prep.existingUUID) {
+					onProgress(`Removing ${prep.tracksToRemove.length} tracks from "${prep.playlistName}"...`);
+					const removeIndices = prep.tracksToRemove.map((t) => t.playlistIndex);
+					const ok = await removeFromPlaylist(prep.existingUUID, removeIndices);
+					if (ok) removedCount = prep.tracksToRemove.length;
+				}
+			}
+
+			// Phase 2: Add tracks
 			if (trackIds.length > 0) {
 				if (prep.isFavorites) {
 					onProgress(`Adding ${trackIds.length} tracks to favorites...`);
@@ -409,7 +452,7 @@ export async function executeAll(
 					});
 					onProgress(`Added ${trackIds.length} tracks to "${prep.playlistName}"`);
 				}
-			} else {
+			} else if (removedCount === 0) {
 				onProgress(`No new tracks to add to "${prep.playlistName}"`);
 			}
 		} catch (error) {
@@ -421,8 +464,10 @@ export async function executeAll(
 			matched: prep.matched,
 			unmatched: prep.unmatched,
 			added: trackIds.length,
+			removed: removedCount,
 			alreadyPresent: prep.alreadyPresent,
 			addedTracks: addedDescriptions,
+			removedTracks: removeDescriptions,
 			unmatchedTracks: prep.unmatchedTracks,
 		};
 		results.push(result);

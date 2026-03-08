@@ -153,3 +153,42 @@ export function addToFavorites(trackIds: number[]): void {
 		payload: { mediaItemIds: trackIds.map(String), from: "SpotifySync" },
 	} as any);
 }
+
+export async function removeFromPlaylist(playlistUUID: string, removeIndices: number[]): Promise<boolean> {
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+
+	const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers });
+	if (!playlistRes.ok) return false;
+
+	const etag = playlistRes.headers.get("etag");
+	if (etag === null) return false;
+
+	const indices = removeIndices.join(",");
+	const deleteRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items/${indices}?${queryArgs}`, {
+		method: "DELETE",
+		headers: {
+			...headers,
+			"If-None-Match": etag,
+		},
+	});
+
+	return deleteRes.ok;
+}
+
+export async function removeFromFavorites(trackIds: number[]): Promise<boolean> {
+	const userId = getUserId();
+	if (userId === null) return false;
+
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+
+	for (const trackId of trackIds) {
+		const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
+			method: "DELETE",
+			headers,
+		});
+		if (!res.ok) return false;
+	}
+	return true;
+}

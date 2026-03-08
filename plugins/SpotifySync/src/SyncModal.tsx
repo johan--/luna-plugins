@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from "react";
 
-import type { SyncPrepResult, SyncPlaylistResult } from "./sync";
+import type { SyncPrepResult, SyncPlaylistResult, SimilarVersion, TrackToRemove } from "./sync";
+
+function formatDuration(seconds: number): string {
+	const m = Math.floor(seconds / 60);
+	const s = Math.floor(seconds % 60);
+	return `${m}:${s.toString().padStart(2, "0")}`;
+}
 
 // --- Reusable collapsible track list ---
 
@@ -43,60 +49,90 @@ interface Props {
 }
 
 export const SyncModal = ({ phase, progressMessage, prepResults, results, onConfirm, onClose, onCancel }: Props) => {
-	// Checkbox state: playlistName -> set of checked tidalIds
-	const [checked, setChecked] = useState<Map<string, Set<number>>>(new Map());
+	// Checkbox state: key = `${playlistName}:new:${tidalId}` or `${playlistName}:existing:${tidalId}` → boolean
+	const [checked, setChecked] = useState<Map<string, boolean>>(new Map());
 
 	useEffect(() => {
 		if (phase === "confirm") {
-			const initial = new Map<string, Set<number>>();
+			const initial = new Map<string, boolean>();
 			for (const prep of prepResults) {
-				// Only check tracks that don't have a similar existing version
-				initial.set(
-					prep.playlistName,
-					new Set(prep.tracksToAdd.filter((t) => !t.similarExisting).map((t) => t.tidalId)),
-				);
+				for (const track of prep.tracksToAdd) {
+					if (track.similarExisting && track.similarExisting.length > 0) {
+						// For similar groups: existing tracks checked, new track unchecked
+						initial.set(`${prep.playlistName}:new:${track.tidalId}`, false);
+						for (const sim of track.similarExisting) {
+							initial.set(`${prep.playlistName}:existing:${sim.tidalId}`, true);
+						}
+					} else {
+						// Regular tracks: checked by default
+						initial.set(`${prep.playlistName}:new:${track.tidalId}`, true);
+					}
+				}
 			}
 			setChecked(initial);
 		}
 	}, [phase]);
 
-	const toggleTrack = (playlistName: string, tidalId: number) => {
+	const toggleItem = (key: string) => {
 		setChecked((prev) => {
 			const next = new Map(prev);
-			const set = new Set(next.get(playlistName) ?? []);
-			if (set.has(tidalId)) set.delete(tidalId);
-			else set.add(tidalId);
-			next.set(playlistName, set);
+			next.set(key, !prev.get(key));
 			return next;
 		});
 	};
 
-	const toggleAllForPlaylist = (playlistName: string, tracks: { tidalId: number }[]) => {
+	const toggleAllNew = (playlistName: string, tracks: { tidalId: number; similarExisting?: SimilarVersion[] }[]) => {
 		setChecked((prev) => {
 			const next = new Map(prev);
-			const current = next.get(playlistName) ?? new Set<number>();
-			if (current.size === tracks.length) {
-				next.set(playlistName, new Set());
-			} else {
-				next.set(playlistName, new Set(tracks.map((t) => t.tidalId)));
+			const newTracks = tracks.filter((t) => !t.similarExisting || t.similarExisting.length === 0);
+			const allChecked = newTracks.every((t) => prev.get(`${playlistName}:new:${t.tidalId}`));
+			for (const t of newTracks) {
+				next.set(`${playlistName}:new:${t.tidalId}`, !allChecked);
 			}
 			return next;
 		});
 	};
 
 	const handleConfirm = () => {
-		const filtered = prepResults.map((prep) => ({
-			...prep,
-			tracksToAdd: prep.tracksToAdd.filter((t) => checked.get(prep.playlistName)?.has(t.tidalId)),
-		}));
+		const filtered = prepResults.map((prep) => {
+			const tracksToAdd = prep.tracksToAdd.filter((t) => checked.get(`${prep.playlistName}:new:${t.tidalId}`));
+			const tracksToRemove: TrackToRemove[] = [];
+			for (const track of prep.tracksToAdd) {
+				if (!track.similarExisting) continue;
+				for (const sim of track.similarExisting) {
+					if (!checked.get(`${prep.playlistName}:existing:${sim.tidalId}`)) {
+						tracksToRemove.push({
+							tidalId: sim.tidalId,
+							playlistIndex: sim.playlistIndex,
+							description: sim.description,
+						});
+					}
+				}
+			}
+			return { ...prep, tracksToAdd, tracksToRemove };
+		});
 		onConfirm(filtered);
 	};
 
-	const totalChecked = Array.from(checked.values()).reduce((sum, s) => sum + s.size, 0);
+	const totalNewChecked = prepResults.reduce((sum, prep) => {
+		return sum + prep.tracksToAdd.filter((t) => checked.get(`${prep.playlistName}:new:${t.tidalId}`)).length;
+	}, 0);
+	const totalExistingUnchecked = prepResults.reduce((sum, prep) => {
+		let count = 0;
+		for (const track of prep.tracksToAdd) {
+			if (!track.similarExisting) continue;
+			for (const sim of track.similarExisting) {
+				if (!checked.get(`${prep.playlistName}:existing:${sim.tidalId}`)) count++;
+			}
+		}
+		return sum + count;
+	}, 0);
+	const hasChanges = totalNewChecked > 0 || totalExistingUnchecked > 0;
 
 	// Complete phase totals
 	const totalMatched = results.reduce((sum, r) => sum + r.matched, 0);
 	const totalAdded = results.reduce((sum, r) => sum + r.added, 0);
+	const totalRemoved = results.reduce((sum, r) => sum + r.removed, 0);
 	const totalUnmatched = results.reduce((sum, r) => sum + r.unmatched, 0);
 
 	const isRunning = phase === "progress";
@@ -143,7 +179,9 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 					{/* Confirm phase */}
 					{phase === "confirm" &&
 						prepResults.map((prep, i) => {
-							const checkedSet = checked.get(prep.playlistName) ?? new Set<number>();
+							const similarTracks = prep.tracksToAdd.filter((t) => t.similarExisting && t.similarExisting.length > 0);
+							const regularTracks = prep.tracksToAdd.filter((t) => !t.similarExisting || t.similarExisting.length === 0);
+
 							return (
 								<div key={i} style={{ marginBottom: "16px" }}>
 									<h3 style={{ fontSize: "15px", color: "#fff", margin: "0 0 4px 0" }}>
@@ -152,10 +190,107 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 									<div style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", marginBottom: "6px" }}>
 										Matched: {prep.matched} | Already present: {prep.alreadyPresent} | Not found: {prep.unmatched}
 									</div>
-									{prep.tracksToAdd.length > 0 && (
+
+									{/* Similar version groups */}
+									{similarTracks.length > 0 && (
+										<div style={{ marginBottom: "8px" }}>
+											<div style={{ color: "rgba(255,200,100,0.8)", fontSize: "13px", marginBottom: "4px" }}>
+												{similarTracks.length} track{similarTracks.length !== 1 ? "s" : ""} with similar versions:
+											</div>
+											{similarTracks.map((track) => (
+												<div
+													key={track.tidalId}
+													style={{
+														marginBottom: "8px",
+														border: "1px solid rgba(255,255,255,0.08)",
+														borderRadius: "6px",
+														background: "rgba(255,255,255,0.03)",
+													}}
+												>
+													{/* Existing versions */}
+													{track.similarExisting!.map((sim) => {
+														const key = `${prep.playlistName}:existing:${sim.tidalId}`;
+														const isChecked = checked.get(key) ?? true;
+														return (
+															<label
+																key={sim.tidalId}
+																style={{
+																	display: "flex",
+																	alignItems: "center",
+																	gap: "10px",
+																	padding: "6px 12px",
+																	cursor: "pointer",
+																	userSelect: "none",
+																	borderBottom: "1px solid rgba(255,255,255,0.05)",
+																	background: isChecked ? "rgba(80,200,120,0.08)" : "rgba(255,80,80,0.08)",
+																}}
+															>
+																<input
+																	type="checkbox"
+																	checked={isChecked}
+																	onChange={() => toggleItem(key)}
+																	style={{ flexShrink: 0 }}
+																/>
+																<div style={{ flex: 1, minWidth: 0 }}>
+																	<div style={{ fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(255,255,255,0.7)" }}>
+																		{sim.description}
+																	</div>
+																</div>
+																<span style={{ padding: "1px 6px", borderRadius: "3px", fontSize: "10px", background: "rgba(100,200,255,0.15)", color: "rgba(100,200,255,0.8)", flexShrink: 0 }}>
+																	Existing
+																</span>
+																<span style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", flexShrink: 0 }}>
+																	{formatDuration(sim.duration)}
+																</span>
+															</label>
+														);
+													})}
+													{/* New track */}
+													{(() => {
+														const key = `${prep.playlistName}:new:${track.tidalId}`;
+														const isChecked = checked.get(key) ?? false;
+														return (
+															<label
+																style={{
+																	display: "flex",
+																	alignItems: "center",
+																	gap: "10px",
+																	padding: "6px 12px",
+																	cursor: "pointer",
+																	userSelect: "none",
+																	background: isChecked ? "rgba(80,200,120,0.08)" : "rgba(255,80,80,0.08)",
+																}}
+															>
+																<input
+																	type="checkbox"
+																	checked={isChecked}
+																	onChange={() => toggleItem(key)}
+																	style={{ flexShrink: 0 }}
+																/>
+																<div style={{ flex: 1, minWidth: 0 }}>
+																	<div style={{ fontSize: "12px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "rgba(255,255,255,0.7)" }}>
+																		{track.description}
+																	</div>
+																</div>
+																<span style={{ padding: "1px 6px", borderRadius: "3px", fontSize: "10px", background: "rgba(29,185,84,0.15)", color: "rgba(29,185,84,0.8)", flexShrink: 0 }}>
+																	New
+																</span>
+																<span style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", flexShrink: 0 }}>
+																	{formatDuration(track.duration)}
+																</span>
+															</label>
+														);
+													})()}
+												</div>
+											))}
+										</div>
+									)}
+
+									{/* Regular tracks (no similar versions) */}
+									{regularTracks.length > 0 && (
 										<div style={{ marginBottom: "4px" }}>
 											<span
-												onClick={() => toggleAllForPlaylist(prep.playlistName, prep.tracksToAdd)}
+												onClick={() => toggleAllNew(prep.playlistName, regularTracks)}
 												style={{
 													color: "rgba(29,185,84,0.8)",
 													fontSize: "13px",
@@ -163,7 +298,7 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 													userSelect: "none",
 												}}
 											>
-												{checkedSet.size === prep.tracksToAdd.length ? "Deselect all" : "Select all"} ({checkedSet.size}/{prep.tracksToAdd.length})
+												{regularTracks.every((t) => checked.get(`${prep.playlistName}:new:${t.tidalId}`)) ? "Deselect all" : "Select all"} ({regularTracks.filter((t) => checked.get(`${prep.playlistName}:new:${t.tidalId}`)).length}/{regularTracks.length})
 											</span>
 											<div
 												style={{
@@ -174,43 +309,37 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 													borderRadius: "4px",
 												}}
 											>
-												{[...prep.tracksToAdd].sort((a, b) => (a.similarExisting ? -1 : 0) - (b.similarExisting ? -1 : 0)).map((track) => (
-													<label
-														key={track.tidalId}
-														style={{
-															display: "flex",
-															alignItems: "center",
-															padding: "4px 8px",
-															cursor: "pointer",
-															borderBottom: "1px solid rgba(255,255,255,0.04)",
-															background: checkedSet.has(track.tidalId)
-																? "rgba(29,185,84,0.05)"
-																: track.similarExisting
-																	? "rgba(255,200,100,0.03)"
-																	: "transparent",
-														}}
-													>
-														<input
-															type="checkbox"
-															checked={checkedSet.has(track.tidalId)}
-															onChange={() => toggleTrack(prep.playlistName, track.tidalId)}
-															style={{ marginRight: "8px", flexShrink: 0 }}
-														/>
-														<div style={{ minWidth: 0 }}>
+												{regularTracks.map((track) => {
+													const key = `${prep.playlistName}:new:${track.tidalId}`;
+													const isChecked = checked.get(key) ?? false;
+													return (
+														<label
+															key={track.tidalId}
+															style={{
+																display: "flex",
+																alignItems: "center",
+																padding: "4px 8px",
+																cursor: "pointer",
+																borderBottom: "1px solid rgba(255,255,255,0.04)",
+																background: isChecked ? "rgba(29,185,84,0.05)" : "transparent",
+															}}
+														>
+															<input
+																type="checkbox"
+																checked={isChecked}
+																onChange={() => toggleItem(key)}
+																style={{ marginRight: "8px", flexShrink: 0 }}
+															/>
 															<span style={{ color: "rgba(255,255,255,0.7)", fontSize: "12px" }}>
 																{track.description}
 															</span>
-															{track.similarExisting && (
-																<div style={{ color: "rgba(255,200,100,0.7)", fontSize: "11px", marginTop: "1px" }}>
-																	Similar version exists: {track.similarExisting}
-																</div>
-															)}
-														</div>
-													</label>
-												))}
+														</label>
+													);
+												})}
 											</div>
 										</div>
 									)}
+
 									{prep.tracksToAdd.length === 0 && (
 										<div style={{ color: "rgba(255,255,255,0.4)", fontSize: "12px" }}>No new tracks to add</div>
 									)}
@@ -231,12 +360,17 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 									{result.playlistName}
 								</h3>
 								<div style={{ color: "rgba(255,255,255,0.6)", fontSize: "13px", marginBottom: "6px" }}>
-									Matched: {result.matched} | Added: {result.added} | Already present: {result.alreadyPresent} | Not found: {result.unmatched}
+									Matched: {result.matched} | Added: {result.added}{result.removed > 0 ? ` | Removed: ${result.removed}` : ""} | Already present: {result.alreadyPresent} | Not found: {result.unmatched}
 								</div>
 								<TrackList
 									label={`added track${result.addedTracks.length !== 1 ? "s" : ""}`}
 									tracks={result.addedTracks}
 									color="rgba(29,185,84,0.8)"
+								/>
+								<TrackList
+									label={`removed track${result.removedTracks.length !== 1 ? "s" : ""}`}
+									tracks={result.removedTracks}
+									color="rgba(255,100,100,0.8)"
 								/>
 								<TrackList
 									label={`unmatched track${result.unmatchedTracks.length !== 1 ? "s" : ""}`}
@@ -260,31 +394,31 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 				>
 					{phase === "complete" && (
 						<span style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px" }}>
-							Total: {totalMatched} matched, {totalAdded} added, {totalUnmatched} not found
+							Total: {totalMatched} matched, {totalAdded} added{totalRemoved > 0 ? `, ${totalRemoved} removed` : ""}, {totalUnmatched} not found
 						</span>
 					)}
 					{phase === "confirm" && (
 						<span style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px" }}>
-							{totalChecked} track{totalChecked !== 1 ? "s" : ""} selected
+							{totalNewChecked} to add{totalExistingUnchecked > 0 ? `, ${totalExistingUnchecked} to remove` : ""}
 						</span>
 					)}
 					<div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
 						{phase === "confirm" && (
 							<button
 								onClick={handleConfirm}
-								disabled={totalChecked === 0}
+								disabled={!hasChanges}
 								style={{
 									padding: "8px 20px",
 									borderRadius: "4px",
 									border: "none",
-									background: totalChecked > 0 ? "#1db954" : "rgba(255,255,255,0.1)",
+									background: hasChanges ? "#1db954" : "rgba(255,255,255,0.1)",
 									color: "#fff",
-									cursor: totalChecked > 0 ? "pointer" : "not-allowed",
+									cursor: hasChanges ? "pointer" : "not-allowed",
 									fontSize: "13px",
 									fontWeight: 500,
 								}}
 							>
-								Confirm ({totalChecked})
+								Confirm ({totalNewChecked} add{totalExistingUnchecked > 0 ? `, ${totalExistingUnchecked} remove` : ""})
 							</button>
 						)}
 						<button
