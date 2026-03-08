@@ -84,17 +84,15 @@ export function saveSimilarDecisions(playlistKey: string, decisions: Record<stri
 	localStorage.setItem(`${STORAGE_PREFIX}decisions:${playlistKey}`, JSON.stringify(decisions));
 }
 
-export function clearSyncMemory(): void {
-	const keysToRemove: string[] = [];
-	for (let i = 0; i < localStorage.length; i++) {
-		const key = localStorage.key(i);
-		if (key && (key.startsWith(`${STORAGE_PREFIX}matched:`) || key.startsWith(`${STORAGE_PREFIX}decisions:`))) {
-			keysToRemove.push(key);
-		}
-	}
-	for (const key of keysToRemove) {
-		localStorage.removeItem(key);
-	}
+export function hasSyncMemory(playlistKey: string): boolean {
+	const matched = localStorage.getItem(`${STORAGE_PREFIX}matched:${playlistKey}`);
+	const decisions = localStorage.getItem(`${STORAGE_PREFIX}decisions:${playlistKey}`);
+	return (matched !== null && matched !== "{}") || (decisions !== null && decisions !== "{}");
+}
+
+export function clearSyncMemoryFor(playlistKey: string): void {
+	localStorage.removeItem(`${STORAGE_PREFIX}matched:${playlistKey}`);
+	localStorage.removeItem(`${STORAGE_PREFIX}decisions:${playlistKey}`);
 }
 
 export function isLoggedIn(): boolean {

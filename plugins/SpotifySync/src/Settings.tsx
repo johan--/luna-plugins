@@ -12,7 +12,8 @@ import {
 	setSkipSimilar,
 	isLoggedIn,
 	clearAuth,
-	clearSyncMemory,
+	hasSyncMemory,
+	clearSyncMemoryFor,
 	saveSimilarDecisions,
 	getSimilarDecisions,
 } from "./state";
@@ -36,6 +37,8 @@ export const Settings = () => {
 	const [doSyncFavorites, setDoSyncFavorites] = useState(initSyncFavorites);
 	const [mode, setMode] = useState<"auto" | "manual">(initSyncMode);
 	const [doSkipSimilar, setDoSkipSimilar] = useState(initSkipSimilar);
+	const [memoryVersion, setMemoryVersion] = useState(0);
+	const bumpMemory = () => setMemoryVersion((v) => v + 1);
 
 	// Auth flow state
 	const [awaitingCallback, setAwaitingCallback] = useState(false);
@@ -359,6 +362,27 @@ export const Settings = () => {
 								setDoSyncFavorites(e.target.checked);
 							}}
 						/>
+						{hasSyncMemory("favorites") && (
+							<div style={{ padding: "0 0 4px 0" }}>
+								<button
+									onClick={() => {
+										clearSyncMemoryFor("favorites");
+										bumpMemory();
+									}}
+									style={{
+										padding: "2px 8px",
+										borderRadius: "3px",
+										border: "1px solid rgba(255,255,255,0.15)",
+										background: "transparent",
+										color: "rgba(255,255,255,0.5)",
+										cursor: "pointer",
+										fontSize: "11px",
+									}}
+								>
+									Clear favorites memory
+								</button>
+							</div>
+						)}
 
 						<LunaSwitchSetting
 							title="Manual mode"
@@ -380,30 +404,6 @@ export const Settings = () => {
 								setDoSkipSimilar(e.target.checked);
 							}}
 						/>
-
-						<div style={{ padding: "8px 0" }}>
-							<button
-								onClick={() => {
-									clearSyncMemory();
-									setError("Sync memory cleared");
-									setTimeout(() => setError(""), 3000);
-								}}
-								style={{
-									padding: "6px 16px",
-									borderRadius: "4px",
-									border: "1px solid rgba(255,255,255,0.2)",
-									background: "transparent",
-									color: "rgba(255,255,255,0.6)",
-									cursor: "pointer",
-									fontSize: "12px",
-								}}
-							>
-								Clear sync memory
-							</button>
-							<span style={{ color: "rgba(255,255,255,0.4)", fontSize: "11px", marginLeft: "8px" }}>
-								Resets cached track matches and similar track decisions
-							</span>
-						</div>
 
 						{/* Playlist list with checkboxes */}
 						<div style={{ padding: "12px 0" }}>
@@ -458,6 +458,28 @@ export const Settings = () => {
 										>
 											{tidalNames.has(p.name) ? "Update" : "New"}
 										</span>
+										{hasSyncMemory(p.id) && (
+											<button
+												onClick={(e) => {
+													e.preventDefault();
+													e.stopPropagation();
+													clearSyncMemoryFor(p.id);
+													bumpMemory();
+												}}
+												style={{
+													padding: "1px 6px",
+													borderRadius: "3px",
+													border: "1px solid rgba(255,255,255,0.15)",
+													background: "transparent",
+													color: "rgba(255,255,255,0.45)",
+													cursor: "pointer",
+													fontSize: "11px",
+													marginLeft: "4px",
+												}}
+											>
+												Clear memory
+											</button>
+										)}
 									</label>
 								))}
 							</div>

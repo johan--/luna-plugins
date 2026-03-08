@@ -10,16 +10,44 @@ function formatDuration(seconds: number): string {
 
 // --- Reusable collapsible track list ---
 
-const TrackList = ({ label, tracks, color }: { label: string; tracks: string[]; color: string }) => {
+const TrackList = ({ label, tracks, color, copyable }: { label: string; tracks: string[]; color: string; copyable?: boolean }) => {
 	const [open, setOpen] = useState(false);
+	const [copied, setCopied] = useState(false);
 	if (tracks.length === 0) return null;
+
+	const handleCopy = (e: React.MouseEvent) => {
+		e.stopPropagation();
+		navigator.clipboard.writeText(tracks.join("\n")).then(() => {
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		});
+	};
+
 	return (
 		<div style={{ marginBottom: "2px" }}>
-			<span
-				onClick={() => setOpen(!open)}
-				style={{ color, fontSize: "13px", cursor: "pointer", userSelect: "none" }}
-			>
-				{open ? "\u25BE" : "\u25B8"} {tracks.length} {label}
+			<span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+				<span
+					onClick={() => setOpen(!open)}
+					style={{ color, fontSize: "13px", cursor: "pointer", userSelect: "none" }}
+				>
+					{open ? "\u25BE" : "\u25B8"} {tracks.length} {label}
+				</span>
+				{copyable && (
+					<button
+						onClick={handleCopy}
+						style={{
+							padding: "1px 8px",
+							borderRadius: "3px",
+							border: "1px solid rgba(255,255,255,0.15)",
+							background: "transparent",
+							color: copied ? "rgba(29,185,84,0.8)" : "rgba(255,255,255,0.5)",
+							cursor: "pointer",
+							fontSize: "11px",
+						}}
+					>
+						{copied ? "Copied!" : "Copy"}
+					</button>
+				)}
 			</span>
 			{open && (
 				<ul style={{ margin: "4px 0 0 0", paddingLeft: "20px", maxHeight: "150px", overflowY: "auto" }}>
@@ -347,6 +375,7 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 										label={`unmatched track${prep.unmatchedTracks.length !== 1 ? "s" : ""}`}
 										tracks={prep.unmatchedTracks}
 										color="rgba(255,200,100,0.8)"
+										copyable
 									/>
 								</div>
 							);
@@ -376,6 +405,7 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 									label={`unmatched track${result.unmatchedTracks.length !== 1 ? "s" : ""}`}
 									tracks={result.unmatchedTracks}
 									color="rgba(255,200,100,0.8)"
+									copyable
 								/>
 							</div>
 						))}
