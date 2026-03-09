@@ -1,0 +1,153 @@
+import React, { useState } from "react";
+import { redux, TidalApi } from "@luna/lib";
+
+const CONFIRM_TEXT = "DELETE ALL";
+
+function getUserId(): number | null {
+	const state = redux.store.getState();
+	return state.session?.userId ?? null;
+}
+
+async function fetchFavoriteTrackIds(): Promise<number[]> {
+	const userId = getUserId();
+	if (userId === null) throw new Error("Not logged in");
+
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+	const ids: number[] = [];
+	let offset = 0;
+	const limit = 9999;
+	let total = Infinity;
+
+	while (offset < total) {
+		const res = await fetch(
+			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
+			{ headers },
+		);
+		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
+		const data = (await res.json()) as { totalNumberOfItems?: number; items: { item: { id: number } }[] };
+		if (data.totalNumberOfItems !== undefined) total = data.totalNumberOfItems;
+		const page = data.items ?? [];
+		if (page.length === 0) break;
+		for (const entry of page) {
+			ids.push(entry.item.id);
+		}
+		offset += page.length;
+	}
+
+	return ids;
+}
+
+async function deleteAllFavorites(onProgress: (done: number, total: number) => void): Promise<number> {
+	const userId = getUserId();
+	if (userId === null) throw new Error("Not logged in");
+
+	const trackIds = await fetchFavoriteTrackIds();
+	if (trackIds.length === 0) return 0;
+
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+	const maxConcurrency = 10;
+	let done = 0;
+	let running = 0;
+	let idx = 0;
+
+	await new Promise<void>((resolve, reject) => {
+		const launch = () => {
+			while (running < maxConcurrency && idx < trackIds.length) {
+				const trackId = trackIds[idx++];
+				running++;
+				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
+					method: "DELETE",
+					headers,
+				})
+					.catch(() => {})
+					.finally(() => {
+						running--;
+						done++;
+						onProgress(done, trackIds.length);
+						if (done === trackIds.length) resolve();
+						else launch();
+					});
+			}
+		};
+		launch();
+	});
+
+	return trackIds.length;
+}
+
+export const Settings = () => {
+	const [input, setInput] = useState("");
+	const [running, setRunning] = useState(false);
+	const [status, setStatus] = useState("");
+
+	const confirmed = input === CONFIRM_TEXT;
+
+	const handleClear = async () => {
+		setRunning(true);
+		setStatus("Fetching favorites...");
+		try {
+			const removed = await deleteAllFavorites((done, total) => {
+				setStatus(`Deleting: ${done}/${total}`);
+			});
+			setStatus(removed > 0 ? `Done. Removed ${removed} tracks.` : "No favorites to remove.");
+		} catch (err) {
+			setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+		} finally {
+			setRunning(false);
+			setInput("");
+		}
+	};
+
+	return (
+		<div style={{ padding: "16px", color: "#fff" }}>
+			<div style={{ fontSize: "14px", marginBottom: "12px", color: "rgba(255,255,255,0.7)" }}>
+				This will permanently delete <strong>all</strong> tracks from your Tidal favorites. This action cannot be undone.
+			</div>
+			<div style={{ marginBottom: "12px" }}>
+				<label style={{ fontSize: "13px", color: "rgba(255,255,255,0.5)", display: "block", marginBottom: "4px" }}>
+					Type <strong>{CONFIRM_TEXT}</strong> to confirm:
+				</label>
+				<input
+					type="text"
+					value={input}
+					onChange={(e) => setInput(e.target.value)}
+					disabled={running}
+					placeholder={CONFIRM_TEXT}
+					style={{
+						width: "200px",
+						padding: "6px 10px",
+						borderRadius: "4px",
+						border: "1px solid rgba(255,255,255,0.2)",
+						background: "rgba(255,255,255,0.05)",
+						color: "#fff",
+						fontSize: "13px",
+						outline: "none",
+					}}
+				/>
+			</div>
+			<button
+				onClick={handleClear}
+				disabled={!confirmed || running}
+				style={{
+					padding: "8px 20px",
+					borderRadius: "4px",
+					border: "none",
+					background: confirmed && !running ? "rgba(255,60,60,0.7)" : "rgba(255,255,255,0.1)",
+					color: "#fff",
+					cursor: confirmed && !running ? "pointer" : "not-allowed",
+					fontSize: "13px",
+					fontWeight: 500,
+				}}
+			>
+				{running ? "Deleting..." : "Clear All Favorites"}
+			</button>
+			{status && (
+				<div style={{ marginTop: "10px", fontSize: "13px", color: "rgba(255,255,255,0.6)" }}>
+					{status}
+				</div>
+			)}
+		</div>
+	);
+};

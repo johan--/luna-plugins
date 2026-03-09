@@ -1,0 +1,12 @@
+{
+	"name": "@squadgazzz/clear-favorites",
+	"description": "Delete all tracks from Tidal favorites",
+	"homepage": "https://github.com/squadgazzz/luna-plugins#ClearFavorites",
+	"author": {
+		"name": "squadgazzz",
+		"url": "https://github.com/squadgazzz",
+		"avatarUrl": "https://avatars.githubusercontent.com/squadgazzz"
+	},
+	"main": "./src/index.ts",
+	"type": "module"
+}
