@@ -57,27 +57,59 @@ export interface SyncPlaylistResult {
 
 export type ProgressCallback = (message: string) => void;
 
+// --- ISRC helpers ---
+
+/** Check if either Spotify or matched Tidal ISRC exists in the existing tracks' ISRC set */
+function hasMatchingIsrc(existingIsrcs: Set<string>, spotifyIsrc?: string | null, tidalIsrc?: string | null): boolean {
+	if (spotifyIsrc && existingIsrcs.has(spotifyIsrc.toUpperCase())) return true;
+	if (tidalIsrc && existingIsrcs.has(tidalIsrc.toUpperCase())) return true;
+	return false;
+}
+
 // --- Similarity helpers ---
 
-/** Builds a key for fuzzy track comparison, transliterating non-Latin scripts and stripping suffixes/punctuation */
+const VERSION_MARKERS = ["remix", "instrumental", "acoustic", "live", "radio edit", "acapella", "demo", "unplugged"];
+
+/** Extracts version markers (remix, live, etc.) from a track name */
+function extractVersionMarker(name: string): string {
+	const lower = name.toLowerCase();
+	const markers = VERSION_MARKERS.filter((m) => lower.includes(m));
+	return markers.sort().join("+");
+}
+
+/** Normalizes a string to a comparable key: transliterate, normalize abbreviations, strip suffixes */
+function normalizeForKey(s: string, separators: string[]): string {
+	let result = anyAscii(s);
+	for (const sep of separators) {
+		result = result.split(sep)[0];
+	}
+	result = result.trim().toLowerCase();
+	// Normalize common abbreviations
+	result = result
+		.replace(/\bpt\b\.?\s*/g, "part ")
+		.replace(/\bft\b\.?\s*/g, "feat ")
+		.replace(/\bvol\b\.?\s*/g, "volume ");
+	// Normalize roman numerals to arabic (longest first to avoid partial matches)
+	result = result
+		.replace(/\bviii\b/g, "8")
+		.replace(/\bvii\b/g, "7")
+		.replace(/\bvi\b/g, "6")
+		.replace(/\biv\b/g, "4")
+		.replace(/\bix\b/g, "9")
+		.replace(/\biii\b/g, "3")
+		.replace(/\bii\b/g, "2")
+		.replace(/\bv\b/g, "5")
+		.replace(/\bx\b/g, "10")
+		.replace(/\bi\b/g, "1");
+	return result.replace(/[^a-z0-9]/g, "");
+}
+
+/** Builds a key for fuzzy track comparison */
 function trackSimilarityKey(name: string, artist: string): string {
-	const n = anyAscii(name)
-		.split("-")[0]
-		.split("(")[0]
-		.split("[")[0]
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]/g, "");
-	const a = anyAscii(artist)
-		.split("&")[0]
-		.split(",")[0]
-		.split("-")[0]
-		.split("(")[0]
-		.split("[")[0]
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]/g, "");
-	return `${n}|${a}`;
+	const n = normalizeForKey(name, [" - ", "(", "["]);
+	const a = normalizeForKey(artist, ["&", ",", " - ", "(", "["]);
+	const marker = extractVersionMarker(name);
+	return marker ? `${n}|${a}|${marker}` : `${n}|${a}`;
 }
 
 interface SimilarTrackEntry {
@@ -87,23 +119,73 @@ interface SimilarTrackEntry {
 	duration: number; // seconds
 }
 
+/** Combines Tidal title and version fields into a full track name */
+function fullTrackName(title: string, version: string | null): string {
+	return version ? `${title} (${version})` : title;
+}
+
+interface TitlePrefixEntry {
+	titleNorm: string;
+	artistNorm: string;
+	entries: SimilarTrackEntry[];
+}
+
+interface SimilarityIndex {
+	byKey: Map<string, SimilarTrackEntry[]>;
+	prefixes: TitlePrefixEntry[]; // title-only entries for prefix matching
+}
+
 /** Builds a similarity index from existing Tidal tracks */
-function buildSimilarityIndex(existingTracks: TidalTrackInfo[]): Map<string, SimilarTrackEntry[]> {
-	const index = new Map<string, SimilarTrackEntry[]>();
+function buildSimilarityIndex(existingTracks: TidalTrackInfo[]): SimilarityIndex {
+	const byKey = new Map<string, SimilarTrackEntry[]>();
+	const prefixMap = new Map<string, SimilarTrackEntry[]>();
+
 	for (let i = 0; i < existingTracks.length; i++) {
 		const track = existingTracks[i];
-		const key = trackSimilarityKey(track.title, track.artists[0]?.name ?? "");
+		const displayName = fullTrackName(track.title, track.version);
+		const artist = track.artists[0]?.name ?? "";
+		// Primary key uses fullTrackName (parens format) — version markers like
+		// "Remix" get stripped by the "(" separator, matching Spotify's "(Remix)" format
+		const key = trackSimilarityKey(displayName, artist);
 		const entry: SimilarTrackEntry = {
 			tidalId: track.id,
 			playlistIndex: i,
-			description: `${track.artists.map((a) => a.name).join(", ")} - ${track.title}`,
+			description: `${track.artists.map((a) => a.name).join(", ")} - ${displayName}`,
 			duration: track.duration,
 		};
-		const list = index.get(key);
+
+		const list = byKey.get(key);
 		if (list) list.push(entry);
-		else index.set(key, [entry]);
+		else byKey.set(key, [entry]);
+
+		if (track.version) {
+			// Flat key: title + version WITHOUT parens — preserves non-marker version
+			// text like "Part 1" that would otherwise be stripped by "(" splitting.
+			// Handles "Poney Pt. I" (Spotify) matching "Poney" + version "Part 1" (Tidal)
+			const flatKey = trackSimilarityKey(`${track.title} ${track.version}`, artist);
+			if (flatKey !== key) {
+				const fList = byKey.get(flatKey);
+				if (fList) fList.push(entry);
+				else byKey.set(flatKey, [entry]);
+			}
+
+			// Title-only prefix entry for prefix fallback matching
+			const titleKey = trackSimilarityKey(track.title, artist);
+			const pList = prefixMap.get(titleKey);
+			if (pList) pList.push(entry);
+			else prefixMap.set(titleKey, [entry]);
+		}
 	}
-	return index;
+
+	const prefixes: TitlePrefixEntry[] = [];
+	for (const [titleKey, entries] of prefixMap) {
+		const [titleNorm, artistNorm] = titleKey.split("|");
+		if (titleNorm.length >= 4) {
+			prefixes.push({ titleNorm, artistNorm, entries });
+		}
+	}
+
+	return { byKey, prefixes };
 }
 
 /**
@@ -113,13 +195,26 @@ function buildSimilarityIndex(existingTracks: TidalTrackInfo[]): Map<string, Sim
  * Returns undefined if no similar track.
  */
 function checkSimilarity(
-	similarityIndex: Map<string, SimilarTrackEntry[]>,
+	similarityIndex: SimilarityIndex,
 	spotifyName: string,
 	spotifyArtist: string,
 	spotifyDurationMs: number,
 ): "exact" | SimilarVersion[] | undefined {
 	const key = trackSimilarityKey(spotifyName, spotifyArtist);
-	const entries = similarityIndex.get(key);
+	let entries = similarityIndex.byKey.get(key);
+
+	// Prefix fallback: check if the Spotify name extends a Tidal title
+	if (!entries && similarityIndex.prefixes.length > 0) {
+		const spotifyNameNorm = normalizeForKey(spotifyName, []);
+		const spotifyArtistNorm = normalizeForKey(spotifyArtist, ["&", ",", " - ", "(", "["]);
+		for (const pe of similarityIndex.prefixes) {
+			if (pe.artistNorm === spotifyArtistNorm && spotifyNameNorm.startsWith(pe.titleNorm)) {
+				entries = pe.entries;
+				break;
+			}
+		}
+	}
+
 	if (!entries) return undefined;
 
 	const spotifyDurationSec = spotifyDurationMs / 1000;
@@ -127,8 +222,15 @@ function checkSimilarity(
 	for (const entry of entries) {
 		if (Math.abs(entry.duration - spotifyDurationSec) < 2) return "exact";
 	}
-	// Duration differs — return all similar versions
-	return entries.map((entry) => ({
+	// Deduplicate by tidalId (same track at multiple playlist positions)
+	const seen = new Set<number>();
+	const unique = entries.filter((e) => {
+		if (seen.has(e.tidalId)) return false;
+		seen.add(e.tidalId);
+		return true;
+	});
+	// Duration differs — return unique similar versions
+	return unique.map((entry) => ({
 		tidalId: entry.tidalId,
 		playlistIndex: entry.playlistIndex,
 		description: entry.description,
@@ -174,6 +276,13 @@ async function preparePlaylistSync(
 	// Build similarity index for fuzzy comparison
 	const similarityIndex = buildSimilarityIndex(existingTracks);
 
+	// Build ISRC set from existing tracks for cross-release matching
+	// (same recording may have different Tidal IDs across regional releases)
+	const existingIsrcs = new Set<string>();
+	for (const t of existingTracks) {
+		if (t.isrc) existingIsrcs.add(t.isrc.toUpperCase());
+	}
+
 	// 3. Match all tracks
 	onProgress(`Matching tracks for "${name}"...`);
 	const matchResults = await matchAllTracks(spotifyTracks, existingTrackIds, (matched, total, unmatchedList) => {
@@ -194,12 +303,14 @@ async function preparePlaylistSync(
 	for (const result of matchResults) {
 		if (result === undefined) continue;
 		const trackDesc = `${result.spotifyTrack.artists.map((a) => a.name).join(", ")} - ${result.spotifyTrack.name}`;
+		const tidalId = result.tidalMatch?.id ?? null;
+		const isrcAlreadyExists = hasMatchingIsrc(existingIsrcs, result.spotifyTrack.external_ids?.isrc, result.tidalMatch?.isrc);
 
-		if (result.tidalId !== null) {
+		if (tidalId !== null) {
 			matched++;
-			if (existingTrackIds.has(result.tidalId)) {
+			if (existingTrackIds.has(tidalId) || isrcAlreadyExists) {
 				alreadyPresent++;
-			} else if (!seenIds.has(result.tidalId)) {
+			} else if (!seenIds.has(tidalId)) {
 				const sim = checkSimilarity(
 					similarityIndex,
 					result.spotifyTrack.name,
@@ -216,37 +327,42 @@ async function preparePlaylistSync(
 							alreadyPresent++;
 						} else {
 							tracksToAdd.push({
-								tidalId: result.tidalId,
+								tidalId,
 								spotifyTrackId: spotifyId,
 								description: trackDesc,
 								duration: result.spotifyTrack.duration_ms / 1000,
 							});
-							seenIds.add(result.tidalId);
+							seenIds.add(tidalId);
 						}
 					} else {
 						tracksToAdd.push({
-							tidalId: result.tidalId,
+							tidalId,
 							spotifyTrackId: spotifyId ?? "",
 							description: trackDesc,
 							duration: result.spotifyTrack.duration_ms / 1000,
 							similarExisting: sim === undefined ? undefined : sim,
 						});
-						seenIds.add(result.tidalId);
+						seenIds.add(tidalId);
 					}
 				}
 			}
 		} else {
-			const sim = checkSimilarity(
-				similarityIndex,
-				result.spotifyTrack.name,
-				result.spotifyTrack.artists[0]?.name ?? "",
-				result.spotifyTrack.duration_ms,
-			);
-			if (sim !== undefined) {
+			// ISRC check for unmatched tracks too — may exist under different metadata
+			if (isrcAlreadyExists) {
 				alreadyPresent++;
 			} else {
-				unmatched++;
-				unmatchedTracks.push(trackDesc);
+				const sim = checkSimilarity(
+					similarityIndex,
+					result.spotifyTrack.name,
+					result.spotifyTrack.artists[0]?.name ?? "",
+					result.spotifyTrack.duration_ms,
+				);
+				if (sim !== undefined) {
+					alreadyPresent++;
+				} else {
+					unmatched++;
+					unmatchedTracks.push(trackDesc);
+				}
 			}
 		}
 	}
@@ -290,6 +406,12 @@ async function prepareFavoritesSync(
 	// Build similarity index
 	const similarityIndex = buildSimilarityIndex(existingTracks);
 
+	// Build ISRC set from existing tracks for cross-release matching
+	const existingIsrcs = new Set<string>();
+	for (const t of existingTracks) {
+		if (t.isrc) existingIsrcs.add(t.isrc.toUpperCase());
+	}
+
 	// 3. Match tracks
 	onProgress("Matching liked tracks...");
 	const matchResults = await matchAllTracks(spotifyTracks, existingTrackIds, (matched, total, unmatchedList) => {
@@ -309,12 +431,14 @@ async function prepareFavoritesSync(
 	for (const result of matchResults) {
 		if (result === undefined) continue;
 		const trackDesc = `${result.spotifyTrack.artists.map((a) => a.name).join(", ")} - ${result.spotifyTrack.name}`;
+		const tidalId = result.tidalMatch?.id ?? null;
+		const isrcAlreadyExists = hasMatchingIsrc(existingIsrcs, result.spotifyTrack.external_ids?.isrc, result.tidalMatch?.isrc);
 
-		if (result.tidalId !== null) {
+		if (tidalId !== null) {
 			matched++;
-			if (existingTrackIds.has(result.tidalId)) {
+			if (existingTrackIds.has(tidalId) || isrcAlreadyExists) {
 				alreadyPresent++;
-			} else if (!seenIds.has(result.tidalId)) {
+			} else if (!seenIds.has(tidalId)) {
 				const sim = checkSimilarity(
 					similarityIndex,
 					result.spotifyTrack.name,
@@ -330,37 +454,42 @@ async function prepareFavoritesSync(
 							alreadyPresent++;
 						} else {
 							tracksToAdd.push({
-								tidalId: result.tidalId,
+								tidalId,
 								spotifyTrackId: spotifyId,
 								description: trackDesc,
 								duration: result.spotifyTrack.duration_ms / 1000,
 							});
-							seenIds.add(result.tidalId);
+							seenIds.add(tidalId);
 						}
 					} else {
 						tracksToAdd.push({
-							tidalId: result.tidalId,
+							tidalId,
 							spotifyTrackId: spotifyId ?? "",
 							description: trackDesc,
 							duration: result.spotifyTrack.duration_ms / 1000,
 							similarExisting: sim === undefined ? undefined : sim,
 						});
-						seenIds.add(result.tidalId);
+						seenIds.add(tidalId);
 					}
 				}
 			}
 		} else {
-			const sim = checkSimilarity(
-				similarityIndex,
-				result.spotifyTrack.name,
-				result.spotifyTrack.artists[0]?.name ?? "",
-				result.spotifyTrack.duration_ms,
-			);
-			if (sim !== undefined) {
+			// ISRC check for unmatched tracks too — may exist under different metadata
+			if (isrcAlreadyExists) {
 				alreadyPresent++;
 			} else {
-				unmatched++;
-				unmatchedTracks.push(trackDesc);
+				const sim = checkSimilarity(
+					similarityIndex,
+					result.spotifyTrack.name,
+					result.spotifyTrack.artists[0]?.name ?? "",
+					result.spotifyTrack.duration_ms,
+				);
+				if (sim !== undefined) {
+					alreadyPresent++;
+				} else {
+					unmatched++;
+					unmatchedTracks.push(trackDesc);
+				}
 			}
 		}
 	}

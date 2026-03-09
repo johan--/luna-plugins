@@ -17,10 +17,17 @@ const TrackList = ({ label, tracks, color, copyable }: { label: string; tracks: 
 
 	const handleCopy = (e: React.MouseEvent) => {
 		e.stopPropagation();
-		navigator.clipboard.writeText(tracks.join("\n")).then(() => {
-			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
-		});
+		const text = tracks.join("\n");
+		const textarea = document.createElement("textarea");
+		textarea.value = text;
+		textarea.style.position = "fixed";
+		textarea.style.opacity = "0";
+		document.body.appendChild(textarea);
+		textarea.select();
+		document.execCommand("copy");
+		document.body.removeChild(textarea);
+		setCopied(true);
+		setTimeout(() => setCopied(false), 2000);
 	};
 
 	return (
@@ -77,7 +84,7 @@ interface Props {
 }
 
 export const SyncModal = ({ phase, progressMessage, prepResults, results, onConfirm, onClose, onCancel }: Props) => {
-	// Checkbox state: key = `${playlistName}:new:${tidalId}` or `${playlistName}:existing:${tidalId}` → boolean
+	// Checkbox state: key = `${playlistName}:new:${tidalId}` or `${playlistName}:existing:${playlistIndex}` → boolean
 	const [checked, setChecked] = useState<Map<string, boolean>>(new Map());
 
 	useEffect(() => {
@@ -89,7 +96,7 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 						// For similar groups: existing tracks checked, new track unchecked
 						initial.set(`${prep.playlistName}:new:${track.tidalId}`, false);
 						for (const sim of track.similarExisting) {
-							initial.set(`${prep.playlistName}:existing:${sim.tidalId}`, true);
+							initial.set(`${prep.playlistName}:existing:${sim.playlistIndex}`, true);
 						}
 					} else {
 						// Regular tracks: checked by default
@@ -128,7 +135,7 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 			for (const track of prep.tracksToAdd) {
 				if (!track.similarExisting) continue;
 				for (const sim of track.similarExisting) {
-					if (!checked.get(`${prep.playlistName}:existing:${sim.tidalId}`)) {
+					if (!checked.get(`${prep.playlistName}:existing:${sim.playlistIndex}`)) {
 						tracksToRemove.push({
 							tidalId: sim.tidalId,
 							playlistIndex: sim.playlistIndex,
@@ -150,7 +157,7 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 		for (const track of prep.tracksToAdd) {
 			if (!track.similarExisting) continue;
 			for (const sim of track.similarExisting) {
-				if (!checked.get(`${prep.playlistName}:existing:${sim.tidalId}`)) count++;
+				if (!checked.get(`${prep.playlistName}:existing:${sim.playlistIndex}`)) count++;
 			}
 		}
 		return sum + count;
@@ -237,11 +244,11 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 												>
 													{/* Existing versions */}
 													{track.similarExisting!.map((sim) => {
-														const key = `${prep.playlistName}:existing:${sim.tidalId}`;
+														const key = `${prep.playlistName}:existing:${sim.playlistIndex}`;
 														const isChecked = checked.get(key) ?? true;
 														return (
 															<label
-																key={sim.tidalId}
+																key={sim.playlistIndex}
 																style={{
 																	display: "flex",
 																	alignItems: "center",

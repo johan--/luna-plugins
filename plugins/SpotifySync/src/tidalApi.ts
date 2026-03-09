@@ -10,7 +10,9 @@ export interface TidalPlaylist {
 export interface TidalTrackInfo {
 	id: number;
 	title: string;
+	version: string | null;
 	duration: number; // seconds
+	isrc: string | null;
 	artists: { name: string }[];
 }
 
@@ -52,7 +54,7 @@ export async function fetchPlaylistTracks(playlistUUID: string): Promise<TidalTr
 	const tracks: TidalTrackInfo[] = [];
 	for (const entry of (data.items ?? [])) {
 		if (entry.item) {
-			tracks.push({ id: entry.item.id, title: entry.item.title, duration: entry.item.duration, artists: entry.item.artists });
+			tracks.push({ id: entry.item.id, title: entry.item.title, version: entry.item.version ?? null, duration: entry.item.duration, isrc: (entry.item as any).isrc ?? null, artists: entry.item.artists });
 		}
 	}
 	return tracks;
@@ -141,7 +143,7 @@ export async function fetchFavoriteTracks(onProgress?: (message: string) => void
 		if (items.length === 0) break;
 		for (const entry of items) {
 			if (entry.item) {
-				tracks.push({ id: entry.item.id, title: entry.item.title, duration: entry.item.duration, artists: entry.item.artists });
+				tracks.push({ id: entry.item.id, title: entry.item.title, version: entry.item.version ?? null, duration: entry.item.duration, isrc: (entry.item as any).isrc ?? null, artists: entry.item.artists });
 			}
 		}
 		offset += items.length;

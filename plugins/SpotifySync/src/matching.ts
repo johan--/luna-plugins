@@ -144,14 +144,19 @@ export class Semaphore {
 	}
 }
 
+export interface TidalMatch {
+	id: number;
+	isrc: string | null;
+}
+
 export interface MatchResult {
 	spotifyTrack: SpotifyTrack;
-	tidalId: number | null;
+	tidalMatch: TidalMatch | null;
 }
 
 // --- Main matching functions ---
 
-export async function matchSpotifyTrack(spotifyTrack: SpotifyTrack, sem: Semaphore): Promise<number | null> {
+export async function matchSpotifyTrack(spotifyTrack: SpotifyTrack, sem: Semaphore): Promise<TidalMatch | null> {
 	if (!spotifyTrack.id) return null;
 
 	await sem.acquire();
@@ -160,14 +165,14 @@ export async function matchSpotifyTrack(spotifyTrack: SpotifyTrack, sem: Semapho
 		const isrc = spotifyTrack.external_ids?.isrc;
 		if (isrc) {
 			const result = await isrcLookup(isrc);
-			if (result) return result.id;
+			if (result) return { id: result.id, isrc: result.isrc ?? null };
 		}
 
 		// Phase 2: Search fallback
 		const query = `${simple(spotifyTrack.name)} ${simple(spotifyTrack.artists[0].name)}`;
 		const results = await searchTidal(query);
 		for (const track of results) {
-			if (matchTrack(track, spotifyTrack)) return track.id;
+			if (matchTrack(track, spotifyTrack)) return { id: track.id, isrc: track.isrc ?? null };
 		}
 	} finally {
 		sem.release();
@@ -196,7 +201,7 @@ export async function matchAllTracks(
 		// Check match cache first
 		if (st.id && matchCache && st.id in matchCache) {
 			const cachedId = matchCache[st.id];
-			results[i] = { spotifyTrack: st, tidalId: cachedId };
+			results[i] = { spotifyTrack: st, tidalMatch: { id: cachedId, isrc: null } };
 			matched++;
 			completed++;
 			if (completed % 10 === 0 || completed === spotifyTracks.length) {
@@ -205,14 +210,14 @@ export async function matchAllTracks(
 			return;
 		}
 
-		const tidalId = await matchSpotifyTrack(st, sem);
+		const tidalMatch = await matchSpotifyTrack(st, sem);
 		if (signal?.aborted) return;
-		results[i] = { spotifyTrack: st, tidalId };
-		if (tidalId !== null) {
+		results[i] = { spotifyTrack: st, tidalMatch };
+		if (tidalMatch !== null) {
 			matched++;
 			// Write successful match to cache
 			if (st.id && matchCache) {
-				matchCache[st.id] = tidalId;
+				matchCache[st.id] = tidalMatch.id;
 			}
 		} else {
 			unmatched.push(`${st.artists.map((a) => a.name).join(", ")} - ${st.name}`);
