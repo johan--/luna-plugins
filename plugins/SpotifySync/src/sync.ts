@@ -610,7 +610,9 @@ export async function executeAll(
 			if (trackIds.length > 0) {
 				if (prep.isFavorites) {
 					onProgress(`Adding ${trackIds.length} tracks to favorites...`);
-					addToFavorites(trackIds);
+					await addToFavorites(trackIds, (added, total) => {
+						onProgress(`Adding to favorites: ${added}/${total}`);
+					});
 					onProgress(`Added ${trackIds.length} tracks to favorites`);
 				} else {
 					let targetUUID = prep.existingUUID;

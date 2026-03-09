@@ -153,11 +153,25 @@ export async function fetchFavoriteTracks(onProgress?: (message: string) => void
 	return tracks;
 }
 
-export function addToFavorites(trackIds: number[]): void {
-	redux.store.dispatch({
-		type: "content/ADD_MEDIA_ITEM_IDS_TO_FAVORITES",
-		payload: { mediaItemIds: trackIds.map(String), from: "SpotifySync" },
-	} as any);
+export async function addToFavorites(trackIds: number[], onProgress?: (added: number, total: number) => void): Promise<void> {
+	const userId = getUserId();
+	if (userId === null) throw new Error("Not logged in");
+
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+
+	for (let i = 0; i < trackIds.length; i++) {
+		const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
+			method: "POST",
+			headers: {
+				...headers,
+				"Content-Type": "application/x-www-form-urlencoded",
+			},
+			body: `trackIds=${trackIds[i]}`,
+		});
+		if (!res.ok) throw new Error(`Failed to add track to favorites: ${res.status}`);
+		onProgress?.(i + 1, trackIds.length);
+	}
 }
 
 export async function removeFromPlaylist(playlistUUID: string, removeIndices: number[]): Promise<boolean> {
