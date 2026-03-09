@@ -154,6 +154,9 @@ export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
 																— {t.album.title}{year ? ` (${year})` : ""}
 															</span>
 														)}
+														<span style={{ marginLeft: "6px", color: "rgba(255,255,255,0.25)" }}>
+															#{choice.index + 1} · ID:{t.id}
+														</span>
 													</div>
 												</div>
 												<div style={{ flexShrink: 0, textAlign: "right", fontSize: "11px", color: "rgba(255,255,255,0.5)" }}>

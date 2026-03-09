@@ -188,13 +188,34 @@ export async function removeFromFavorites(trackIds: number[]): Promise<boolean> 
 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
+	const maxConcurrency = 10;
+	let done = 0;
+	let running = 0;
+	let idx = 0;
+	let failed = false;
 
-	for (const trackId of trackIds) {
-		const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
-			method: "DELETE",
-			headers,
-		});
-		if (!res.ok) return false;
-	}
-	return true;
+	await new Promise<void>((resolve) => {
+		const launch = () => {
+			while (running < maxConcurrency && idx < trackIds.length && !failed) {
+				const trackId = trackIds[idx++];
+				running++;
+				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
+					method: "DELETE",
+					headers,
+				})
+					.then((res) => { if (!res.ok) failed = true; })
+					.catch(() => { failed = true; })
+					.finally(() => {
+						running--;
+						done++;
+						if (done === trackIds.length || (failed && running === 0)) resolve();
+						else launch();
+					});
+			}
+		};
+		if (trackIds.length === 0) resolve();
+		else launch();
+	});
+
+	return !failed;
 }

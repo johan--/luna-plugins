@@ -75,6 +75,26 @@ https://github.com/user-attachments/assets/c68dc654-04bd-4477-b367-11cd86b3ba6b
 
 ---
 
+### SpotifySync
+
+Sync your Spotify playlists and liked songs to Tidal.
+
+**The Problem:** If you use both Spotify and Tidal, keeping your libraries in sync means manually searching and adding tracks one by one.
+
+**Features:**
+- **Playlist sync** — select Spotify playlists to sync; creates matching Tidal playlists if they don't exist
+- **Favorites sync** — sync Spotify liked songs to Tidal favorites
+- **Smart matching** — finds Tidal tracks via ISRC lookup, then falls back to search with fuzzy name/artist/duration matching
+- **Cross-release detection** — recognizes tracks already in your library even when Tidal has different regional releases (e.g. "Хаски" vs "Husky") using ISRC comparison
+- **Similar version handling** — detects when a similar version already exists (e.g. remaster vs original) and lets you choose which to keep
+- **Transliteration support** — handles non-Latin scripts (Cyrillic, CJK, etc.) via Unicode-to-ASCII transliteration
+- **Abbreviation normalization** — matches "Pt. I" to "Part 1", "Ft." to "Feat.", roman to arabic numerals
+- **Sync memory** — remembers matched tracks and similar-version decisions per playlist, skipping re-lookups on subsequent syncs
+- **Manual mode** — review every track before adding, with checkboxes to select/deselect individual tracks
+- **Copy unmatched** — copy the list of tracks that couldn't be found on Tidal to clipboard
+
+---
+
 ### TrackRadio
 
 Makes the native "Go to track radio" context menu button work immediately — even when Tidal hasn't finished loading the radio data.
@@ -111,6 +131,10 @@ https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.dedup-p
 
 ```
 https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.track-radio
+```
+
+```
+https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.spotify-sync
 ```
 
 Or install the full store:

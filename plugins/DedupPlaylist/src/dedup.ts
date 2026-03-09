@@ -51,12 +51,44 @@ function groupNeedsStreamInfo(group: DuplicateGroupResult): boolean {
 	return qualities.size === 1;
 }
 
-async function enrichWithStreamInfo(group: DuplicateGroupResult): Promise<void> {
-	const fetches = group.choices.map(async (choice) => {
-		const t = choice.track.track.item;
-		choice.streamInfo = await fetchStreamInfo(t.id, t.audioQuality ?? "LOSSLESS");
+async function enrichAllWithStreamInfo(
+	groups: DuplicateGroupResult[],
+	onProgress: (done: number, total: number) => void,
+): Promise<void> {
+	const choices: TrackChoice[] = [];
+	for (const group of groups) {
+		for (const choice of group.choices) {
+			choices.push(choice);
+		}
+	}
+
+	let done = 0;
+	let running = 0;
+	const maxConcurrency = 10;
+	let idx = 0;
+	onProgress(0, choices.length);
+
+	await new Promise<void>((resolve, reject) => {
+		const launch = () => {
+			while (running < maxConcurrency && idx < choices.length) {
+				const choice = choices[idx++];
+				running++;
+				const t = choice.track.track.item;
+				fetchStreamInfo(t.id, t.audioQuality ?? "LOSSLESS")
+					.then((info) => { choice.streamInfo = info; })
+					.catch(() => { choice.streamInfo = null; })
+					.finally(() => {
+						running--;
+						done++;
+						onProgress(done, choices.length);
+						if (done === choices.length) resolve();
+						else launch();
+					});
+			}
+		};
+		if (choices.length === 0) resolve();
+		else launch();
 	});
-	await Promise.all(fetches);
 }
 
 export async function scanForDuplicates(
@@ -70,10 +102,14 @@ export async function scanForDuplicates(
 
 	for (const target of targets) {
 		onStatus(`Fetching "${target.title}"...`);
-		const items = target.type === "favorites" ? await fetchFavoriteTracks() : await fetchPlaylistItems(target.uuid);
+		const items = target.type === "favorites"
+			? await fetchFavoriteTracks((loaded, total) => onStatus(`Fetching "${target.title}": ${loaded}/${total} tracks...`))
+			: await fetchPlaylistItems(target.uuid);
+		onStatus(`Fetched ${items.length} tracks from "${target.title}", scanning for duplicates...`);
 
 		const indexed: IndexedTrack[] = items.map((item, index) => ({ index, track: item }));
 		const duplicateGroups = findDuplicates(indexed, strategies);
+		onStatus(`Found ${duplicateGroups.length} duplicate group(s) in "${target.title}"`);
 
 		if (duplicateGroups.length > 0) {
 			const groups = duplicateGroups.map(buildGroupResult);
@@ -81,10 +117,9 @@ export async function scanForDuplicates(
 			// Fetch stream info for groups where all tracks share the same quality tier
 			const groupsNeedingInfo = groups.filter(groupNeedsStreamInfo);
 			if (groupsNeedingInfo.length > 0) {
-				onStatus(`Fetching stream quality for ${groupsNeedingInfo.length} group(s)...`);
-				for (const group of groupsNeedingInfo) {
-					await enrichWithStreamInfo(group);
-				}
+				await enrichAllWithStreamInfo(groupsNeedingInfo, (done, total) => {
+					onStatus(`Fetching stream quality: ${done}/${total} tracks...`);
+				});
 			}
 
 			results.push({ target, groups, indexed });
@@ -115,7 +150,9 @@ export async function executeRemovals(
 		if (target.type === "favorites") {
 			const trackMap = new Map(indexed.map((t) => [t.index, t]));
 			const trackIds = removeIndices.map((idx) => trackMap.get(idx)!.track.item.id);
-			const success = await removeFromFavorites(trackIds);
+			const success = await removeFromFavorites(trackIds, (removed, total) => {
+				onStatus(`Removing from "${target.title}": ${removed}/${total}`);
+			});
 			if (!success) return `Failed to remove tracks from "${target.title}".`;
 		} else {
 			const success = await removeFromPlaylist(target.uuid, removeIndices);

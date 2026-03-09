@@ -53,7 +53,7 @@ export async function fetchPlaylistItems(playlistUUID: string): Promise<TrackIte
 	return data.items;
 }
 
-export async function fetchFavoriteTracks(): Promise<TrackItem[]> {
+export async function fetchFavoriteTracks(onProgress?: (loaded: number, total: number) => void): Promise<TrackItem[]> {
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
@@ -61,21 +61,31 @@ export async function fetchFavoriteTracks(): Promise<TrackItem[]> {
 	const queryArgs = TidalApi.queryArgs();
 	const items: TrackItem[] = [];
 	let offset = 0;
-	const limit = 9999;
+	const limit = 500;
 	let total = Infinity;
 
 	while (offset < total) {
-		const res = await fetch(
-			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
-			{ headers },
-		);
-		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
+		let res: Response | null = null;
+		for (let attempt = 0; attempt < 3; attempt++) {
+			res = await fetch(
+				`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
+				{ headers },
+			);
+			if (res.ok) break;
+			if (res.status === 429 || res.status >= 500) {
+				await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+			} else {
+				break;
+			}
+		}
+		if (!res || !res.ok) throw new Error(`Failed to fetch favorites: ${res?.status}`);
 		const data = (await res.json()) as PlaylistItemsResponse & { totalNumberOfItems?: number };
 		if (data.totalNumberOfItems !== undefined) total = data.totalNumberOfItems;
 		const page = data.items ?? [];
 		if (page.length === 0) break;
 		items.push(...page);
 		offset += page.length;
+		onProgress?.(items.length, total === Infinity ? items.length : total);
 	}
 
 	return items;
@@ -103,21 +113,43 @@ export async function removeFromPlaylist(playlistUUID: string, removeIndices: nu
 	return deleteRes.ok;
 }
 
-export async function removeFromFavorites(trackIds: number[]): Promise<boolean> {
+export async function removeFromFavorites(trackIds: number[], onProgress?: (removed: number, total: number) => void): Promise<boolean> {
 	const userId = getUserId();
 	if (userId === null) return false;
 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
+	const maxConcurrency = 10;
+	let done = 0;
+	let running = 0;
+	let idx = 0;
+	let failed = false;
 
-	for (const trackId of trackIds) {
-		const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
-			method: "DELETE",
-			headers,
-		});
-		if (!res.ok) return false;
-	}
-	return true;
+	await new Promise<void>((resolve) => {
+		const launch = () => {
+			while (running < maxConcurrency && idx < trackIds.length && !failed) {
+				const trackId = trackIds[idx++];
+				running++;
+				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
+					method: "DELETE",
+					headers,
+				})
+					.then((res) => { if (!res.ok) failed = true; })
+					.catch(() => { failed = true; })
+					.finally(() => {
+						running--;
+						done++;
+						onProgress?.(done, trackIds.length);
+						if (done === trackIds.length || (failed && running === 0)) resolve();
+						else launch();
+					});
+			}
+		};
+		if (trackIds.length === 0) resolve();
+		else launch();
+	});
+
+	return !failed;
 }
 
 export interface StreamInfo {
