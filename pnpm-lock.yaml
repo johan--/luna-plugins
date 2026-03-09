@@ -25,7 +25,7 @@ importers:
         version: 14.1.1
       luna:
         specifier: github:Inrixia/TidaLuna
-        version: https://codeload.github.com/Inrixia/TidaLuna/tar.gz/2ea044aa750b014fbad91d895e55dcd06a102b5b
+        version: https://codeload.github.com/Inrixia/TidaLuna/tar.gz/f472d3e3a9e663f8f7221dfa203f4cc57eac1a8f
       oby:
         specifier: ^15.1.2
         version: 15.1.2
@@ -39,6 +39,8 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  plugins/DedupPlaylist: {}
+
   plugins/FilteredQueueFix: {}
 
   plugins/PlaylistIndicator: {}
@@ -46,6 +48,12 @@ importers:
   plugins/ScrollToPlaying: {}
 
   plugins/SeekSpy: {}
+
+  plugins/SpotifySync:
+    dependencies:
+      any-ascii:
+        specifier: ^0.3.3
+        version: 0.3.3
 
   plugins/TrackRadio: {}
 
@@ -259,6 +267,10 @@ packages:
     resolution: {integrity: sha512-zbB9rCJAT1rbjiVDb2hqKFHNYLxgtk8NURxZ3IZwD3F6NtxbXZQCnnSi1Lkx+IDohdPlFp222wVALIheZJQSEg==}
     engines: {node: '>=8'}
 
+  any-ascii@0.3.3:
+    resolution: {integrity: sha512-8hm+zPrc1VnlxD5eRgMo9F9k2wEMZhbZVLKwA/sPKIt6ywuz7bI9uV/yb27uvc8fv8q6Wl2piJT51q1saKX0Jw==}
+    engines: {node: '>=12.20'}
+
   async@3.2.6:
     resolution: {integrity: sha512-htCUDlxyyCLMgaM3xXg0C0LW2xqfuQ6p05pCEIsXuyQ+a1koYKTuBMzRNwmybfLgvJDMd0r1LTn4+E0Ti6C2AA==}
 
@@ -466,9 +478,9 @@ packages:
     resolution: {integrity: sha512-ESL2CrkS/2wTPfuend7Zhkzo2u0daGJ/A2VucJOgQ/C48S/zB8MMeMHSGKYpXhIjbPxfuezITkaBH1wqv00DDQ==}
     engines: {node: 20 || >=22}
 
-  luna@https://codeload.github.com/Inrixia/TidaLuna/tar.gz/2ea044aa750b014fbad91d895e55dcd06a102b5b:
-    resolution: {tarball: https://codeload.github.com/Inrixia/TidaLuna/tar.gz/2ea044aa750b014fbad91d895e55dcd06a102b5b}
-    version: 1.12.2-beta
+  luna@https://codeload.github.com/Inrixia/TidaLuna/tar.gz/f472d3e3a9e663f8f7221dfa203f4cc57eac1a8f:
+    resolution: {tarball: https://codeload.github.com/Inrixia/TidaLuna/tar.gz/f472d3e3a9e663f8f7221dfa203f4cc57eac1a8f}
+    version: 1.12.5-beta
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -792,6 +804,8 @@ snapshots:
     dependencies:
       color-convert: 2.0.1
 
+  any-ascii@0.3.3: {}
+
   async@3.2.6: {}
 
   balanced-match@4.0.3: {}
@@ -1023,7 +1037,7 @@ snapshots:
 
   lru-cache@11.2.6: {}
 
-  luna@https://codeload.github.com/Inrixia/TidaLuna/tar.gz/2ea044aa750b014fbad91d895e55dcd06a102b5b:
+  luna@https://codeload.github.com/Inrixia/TidaLuna/tar.gz/f472d3e3a9e663f8f7221dfa203f4cc57eac1a8f:
     dependencies:
       '@inrixia/helpers': 3.21.2
       '@types/clean-css': 4.2.11

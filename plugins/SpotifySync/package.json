@@ -8,5 +8,8 @@
 		"avatarUrl": "https://avatars.githubusercontent.com/squadgazzz"
 	},
 	"main": "./src/index.ts",
-	"type": "module"
+	"type": "module",
+	"dependencies": {
+		"any-ascii": "^0.3.3"
+	}
 }

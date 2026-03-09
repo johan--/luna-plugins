@@ -1,3 +1,4 @@
+import anyAscii from "any-ascii";
 import type { SpotifyPlaylist } from "./spotifyApi";
 import { getPlaylistTracks, getLikedTracks } from "./spotifyApi";
 import { matchAllTracks } from "./matching";
@@ -58,26 +59,24 @@ export type ProgressCallback = (message: string) => void;
 
 // --- Similarity helpers ---
 
-/** Builds a key for fuzzy track comparison, stripping version/remaster/year suffixes */
+/** Builds a key for fuzzy track comparison, transliterating non-Latin scripts and stripping suffixes/punctuation */
 function trackSimilarityKey(name: string, artist: string): string {
-	const n = name
-		.normalize("NFD")
-		.replace(/[\u0300-\u036f]/g, "")
+	const n = anyAscii(name)
 		.split("-")[0]
 		.split("(")[0]
 		.split("[")[0]
 		.trim()
-		.toLowerCase();
-	const a = artist
-		.normalize("NFD")
-		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, "");
+	const a = anyAscii(artist)
 		.split("&")[0]
 		.split(",")[0]
 		.split("-")[0]
 		.split("(")[0]
 		.split("[")[0]
 		.trim()
-		.toLowerCase();
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, "");
 	return `${n}|${a}`;
 }
 

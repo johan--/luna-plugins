@@ -59,10 +59,26 @@ export async function fetchFavoriteTracks(): Promise<TrackItem[]> {
 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=9999&order=DATE&orderDirection=ASC`, { headers });
-	if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
-	const data = (await res.json()) as PlaylistItemsResponse;
-	return data.items;
+	const items: TrackItem[] = [];
+	let offset = 0;
+	const limit = 9999;
+	let total = Infinity;
+
+	while (offset < total) {
+		const res = await fetch(
+			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
+			{ headers },
+		);
+		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
+		const data = (await res.json()) as PlaylistItemsResponse & { totalNumberOfItems?: number };
+		if (data.totalNumberOfItems !== undefined) total = data.totalNumberOfItems;
+		const page = data.items ?? [];
+		if (page.length === 0) break;
+		items.push(...page);
+		offset += page.length;
+	}
+
+	return items;
 }
 
 export async function removeFromPlaylist(playlistUUID: string, removeIndices: number[]): Promise<boolean> {
