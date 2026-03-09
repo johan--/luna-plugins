@@ -53,39 +53,35 @@ export async function fetchPlaylistItems(playlistUUID: string): Promise<TrackIte
 	return data.items;
 }
 
-export async function fetchFavoriteTracks(onProgress?: (loaded: number, total: number) => void): Promise<TrackItem[]> {
+export async function fetchFavoriteTracks(): Promise<TrackItem[]> {
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
 	const items: TrackItem[] = [];
+	const seenIds = new Set<number>();
 	let offset = 0;
-	const limit = 500;
+	const limit = 9999;
 	let total = Infinity;
 
 	while (offset < total) {
-		let res: Response | null = null;
-		for (let attempt = 0; attempt < 3; attempt++) {
-			res = await fetch(
-				`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
-				{ headers },
-			);
-			if (res.ok) break;
-			if (res.status === 429 || res.status >= 500) {
-				await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
-			} else {
-				break;
-			}
-		}
-		if (!res || !res.ok) throw new Error(`Failed to fetch favorites: ${res?.status}`);
+		const res = await fetch(
+			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
+			{ headers },
+		);
+		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
 		const data = (await res.json()) as PlaylistItemsResponse & { totalNumberOfItems?: number };
 		if (data.totalNumberOfItems !== undefined) total = data.totalNumberOfItems;
 		const page = data.items ?? [];
 		if (page.length === 0) break;
-		items.push(...page);
+		for (const item of page) {
+			if (!seenIds.has(item.item.id)) {
+				seenIds.add(item.item.id);
+				items.push(item);
+			}
+		}
 		offset += page.length;
-		onProgress?.(items.length, total === Infinity ? items.length : total);
 	}
 
 	return items;

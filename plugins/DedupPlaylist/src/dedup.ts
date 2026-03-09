@@ -102,9 +102,7 @@ export async function scanForDuplicates(
 
 	for (const target of targets) {
 		onStatus(`Fetching "${target.title}"...`);
-		const items = target.type === "favorites"
-			? await fetchFavoriteTracks((loaded, total) => onStatus(`Fetching "${target.title}": ${loaded}/${total} tracks...`))
-			: await fetchPlaylistItems(target.uuid);
+		const items = target.type === "favorites" ? await fetchFavoriteTracks() : await fetchPlaylistItems(target.uuid);
 		onStatus(`Fetched ${items.length} tracks from "${target.title}", scanning for duplicates...`);
 
 		const indexed: IndexedTrack[] = items.map((item, index) => ({ index, track: item }));
