@@ -127,7 +127,35 @@ async function findAlternatives(
 		}
 	}
 
-	return candidates.filter((c) => isBetter(track, c));
+	// First pass: candidates clearly better by quality tier, remaster, or release date
+	const better = candidates.filter((c) => isBetter(track, c));
+	const betterIds = new Set(better.map((c) => c.id));
+
+	// Second pass: same quality tier — compare stream info (bit depth, sample rate)
+	const currentQuality = QUALITY_RANK[track.audioQuality ?? ""] ?? -1;
+	const sameTier = candidates.filter((c) => {
+		if (betterIds.has(c.id)) return false;
+		const q = QUALITY_RANK[c.audioQuality ?? ""] ?? -1;
+		return q === currentQuality && q >= 0;
+	});
+
+	if (sameTier.length > 0) {
+		const currentStream = await fetchStreamInfo(track.id, track.audioQuality ?? "LOSSLESS");
+		if (currentStream && currentStream.bitDepth > 0) {
+			for (const c of sameTier) {
+				if (signal?.aborted) return [];
+				const cStream = await fetchStreamInfo(c.id, c.audioQuality ?? "LOSSLESS");
+				if (cStream && (
+					cStream.bitDepth > currentStream.bitDepth ||
+					(cStream.bitDepth === currentStream.bitDepth && cStream.sampleRate > currentStream.sampleRate)
+				)) {
+					better.push(c);
+				}
+			}
+		}
+	}
+
+	return better;
 }
 
 class Semaphore {

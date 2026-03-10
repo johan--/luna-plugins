@@ -17,7 +17,7 @@ Deduplicate tracks and find quality upgrades in your Tidal playlists and favorit
 - **Keep strategy** — choose which duplicate to keep: best quality, oldest (first occurrence), or newest (last occurrence)
 
 *Find upgrades mode:*
-- **Quality upgrades** — finds higher quality versions of your tracks (e.g. HIGH → LOSSLESS → Hi-Res)
+- **Quality upgrades** — finds higher quality versions of your tracks (e.g. HIGH → LOSSLESS → Hi-Res), including stream-level comparison of bit depth (16 vs 24 bit) and sample rate (44.1 vs 48 vs 96 kHz) within the same quality tier
 - **Remaster detection** — finds remastered versions when your library has the original
 - **Reissue detection** — finds newer reissues (e.g. 2015 reissue of a 1999 original)
 - **ISRC + search** — looks up alternatives by ISRC code first, then falls back to search to catch remasters with different ISRCs
