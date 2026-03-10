@@ -177,34 +177,24 @@ export async function addToFavorites(trackIds: number[], onProgress?: (added: nu
 	};
 
 	if (parallel) {
-		const maxConcurrency = 10;
-		let done = 0;
-		let running = 0;
-		let idx = 0;
-		let error: Error | null = null;
-
-		await new Promise<void>((resolve, reject) => {
-			const launch = () => {
-				while (running < maxConcurrency && idx < trackIds.length && !error && !signal?.aborted) {
-					const trackId = trackIds[idx++];
-					running++;
-					addOne(trackId)
-						.catch((err) => { error = err; })
-						.finally(() => {
-							running--;
-							done++;
-							onProgress?.(done, trackIds.length);
-							if (signal?.aborted && running === 0) {
-								reject(new DOMException("Cancelled", "AbortError"));
-							} else if (error && running === 0) reject(error);
-							else if (done === trackIds.length) resolve();
-							else launch();
-						});
-				}
-			};
-			if (trackIds.length === 0) resolve();
-			else launch();
-		});
+		const chunkSize = 20;
+		let added = 0;
+		for (let i = 0; i < trackIds.length; i += chunkSize) {
+			if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+			const batch = trackIds.slice(i, i + chunkSize);
+			const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
+				method: "POST",
+				headers: {
+					...headers,
+					"Content-Type": "application/x-www-form-urlencoded",
+				},
+				body: `trackIds=${batch.join(",")}`,
+				signal,
+			});
+			if (!res.ok) throw new Error(`Failed to add tracks to favorites: ${res.status}`);
+			added += batch.length;
+			onProgress?.(added, trackIds.length);
+		}
 	} else {
 		for (let i = 0; i < trackIds.length; i++) {
 			if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
