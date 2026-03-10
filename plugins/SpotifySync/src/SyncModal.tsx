@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
-import type { SyncPrepResult, SyncPlaylistResult, SimilarVersion, TrackToRemove } from "./sync";
+import type { SyncPrepResult, SyncPlaylistResult, SimilarVersion, TrackToRemove, ProgressInfo } from "./sync";
 
 function formatDuration(seconds: number): string {
 	const m = Math.floor(seconds / 60);
@@ -69,6 +69,60 @@ const TrackList = ({ label, tracks, color, copyable }: { label: string; tracks: 
 	);
 };
 
+// --- Progress bar ---
+
+function formatEta(seconds: number): string {
+	if (seconds < 60) return `${Math.ceil(seconds)}s`;
+	const m = Math.floor(seconds / 60);
+	const s = Math.ceil(seconds % 60);
+	return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+const ProgressBar = ({ current, total }: { current: number; total: number }) => {
+	const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+	const startRef = useRef<{ time: number; total: number }>({ time: Date.now(), total });
+
+	// Reset start time when total changes (new operation)
+	if (startRef.current.total !== total) {
+		startRef.current = { time: Date.now(), total };
+	}
+
+	let eta = "";
+	if (current > 0 && current < total) {
+		const elapsed = (Date.now() - startRef.current.time) / 1000;
+		const rate = current / elapsed;
+		const remaining = (total - current) / rate;
+		eta = formatEta(remaining);
+	}
+
+	return (
+		<div style={{ marginTop: "10px" }}>
+			<div
+				style={{
+					height: "6px",
+					borderRadius: "3px",
+					background: "rgba(255,255,255,0.1)",
+					overflow: "hidden",
+				}}
+			>
+				<div
+					style={{
+						height: "100%",
+						width: `${pct}%`,
+						borderRadius: "3px",
+						background: "#1db954",
+						transition: "width 0.2s ease",
+					}}
+				/>
+			</div>
+			<div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", color: "rgba(255,255,255,0.4)", marginTop: "4px" }}>
+				<span>{eta ? `~${eta} remaining` : "\u00A0"}</span>
+				<span>{pct}%</span>
+			</div>
+		</div>
+	);
+};
+
 // --- Main modal ---
 
 export type ModalPhase = "progress" | "confirm" | "complete";
@@ -76,6 +130,7 @@ export type ModalPhase = "progress" | "confirm" | "complete";
 interface Props {
 	phase: ModalPhase;
 	progressMessage: string;
+	progressInfo?: ProgressInfo;
 	prepResults: SyncPrepResult[];
 	results: SyncPlaylistResult[];
 	onConfirm: (filteredPreps: SyncPrepResult[]) => void;
@@ -83,7 +138,7 @@ interface Props {
 	onCancel: () => void;
 }
 
-export const SyncModal = ({ phase, progressMessage, prepResults, results, onConfirm, onClose, onCancel }: Props) => {
+export const SyncModal = ({ phase, progressMessage, progressInfo, prepResults, results, onConfirm, onClose, onCancel }: Props) => {
 	// Checkbox state: key = `${playlistName}:new:${tidalId}` or `${playlistName}:existing:${playlistIndex}` → boolean
 	const [checked, setChecked] = useState<Map<string, boolean>>(new Map());
 
@@ -208,7 +263,10 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 				<div style={{ overflowY: "auto", flex: 1, padding: "12px 20px" }}>
 					{/* Progress phase */}
 					{phase === "progress" && (
-						<div style={{ color: "rgba(255,255,255,0.7)", fontSize: "14px" }}>{progressMessage}</div>
+						<div>
+							<div style={{ color: "rgba(255,255,255,0.7)", fontSize: "14px" }}>{progressMessage}</div>
+							{progressInfo && <ProgressBar current={progressInfo.current} total={progressInfo.total} />}
+						</div>
 					)}
 
 					{/* Confirm phase */}

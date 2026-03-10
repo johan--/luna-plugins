@@ -29,25 +29,25 @@ function getUserId(): number | null {
 	return state.session?.userId ?? null;
 }
 
-export async function fetchUserPlaylists(): Promise<TidalPlaylist[]> {
+export async function fetchUserPlaylists(signal?: AbortSignal): Promise<TidalPlaylist[]> {
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/playlists?${queryArgs}&limit=999`, { headers });
+	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/playlists?${queryArgs}&limit=999`, { headers, signal });
 	if (!res.ok) throw new Error(`Failed to fetch playlists: ${res.status}`);
 
 	const data = (await res.json()) as { items: TidalPlaylist[] };
 	return data.items;
 }
 
-export async function fetchPlaylistTracks(playlistUUID: string): Promise<TidalTrackInfo[]> {
+export async function fetchPlaylistTracks(playlistUUID: string, signal?: AbortSignal): Promise<TidalTrackInfo[]> {
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
 	const res = await fetchWithRetry(
 		`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=-1`,
-		{ headers },
+		{ headers, signal },
 	);
 	if (!res.ok) throw new Error(`Failed to fetch playlist items: ${res.status}`);
 	const data = (await res.json()) as { items: { item: TidalTrackInfo | null }[] };
@@ -60,19 +60,20 @@ export async function fetchPlaylistTracks(playlistUUID: string): Promise<TidalTr
 	return tracks;
 }
 
-export async function addTracksToPlaylist(playlistUUID: string, trackIds: number[], onProgress?: (added: number, total: number) => void): Promise<void> {
+export async function addTracksToPlaylist(playlistUUID: string, trackIds: number[], onProgress?: (added: number, total: number) => void, signal?: AbortSignal): Promise<void> {
 	const chunkSize = 20;
 	const total = trackIds.length;
 	let added = 0;
 
 	for (let i = 0; i < total; i += chunkSize) {
+		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		const batch = trackIds.slice(i, i + chunkSize);
 
 		const headers = await TidalApi.getAuthHeaders();
 		const queryArgs = TidalApi.queryArgs();
 
 		// Get ETag
-		const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers });
+		const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers, signal });
 		if (!playlistRes.ok) throw new Error(`Failed to fetch playlist for ETag: ${playlistRes.status}`);
 
 		const etag = playlistRes.headers.get("etag");
@@ -87,6 +88,7 @@ export async function addTracksToPlaylist(playlistUUID: string, trackIds: number
 				"If-None-Match": etag,
 			},
 			body: `trackIds=${batch.join(",")}&onDupes=SKIP`,
+			signal,
 		});
 		if (!addRes.ok) throw new Error(`Failed to add tracks to playlist: ${addRes.status}`);
 
@@ -119,7 +121,7 @@ export function createPlaylist(title: string, description?: string): Promise<str
 	});
 }
 
-export async function fetchFavoriteTracks(onProgress?: (message: string) => void): Promise<TidalTrackInfo[]> {
+export async function fetchFavoriteTracks(onProgress?: (message: string) => void, signal?: AbortSignal): Promise<TidalTrackInfo[]> {
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
@@ -131,10 +133,11 @@ export async function fetchFavoriteTracks(onProgress?: (message: string) => void
 	let total = Infinity;
 
 	while (offset < total) {
+		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		onProgress?.(`Fetching Tidal favorites${tracks.length > 0 ? `: ${tracks.length} loaded...` : "..."}`);
 		const res = await fetchWithRetry(
 			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
-			{ headers },
+			{ headers, signal },
 		);
 		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
 		const data = (await res.json()) as { totalNumberOfItems?: number; items: { item: TidalTrackInfo | null }[] };
@@ -153,32 +156,69 @@ export async function fetchFavoriteTracks(onProgress?: (message: string) => void
 	return tracks;
 }
 
-export async function addToFavorites(trackIds: number[], onProgress?: (added: number, total: number) => void): Promise<void> {
+export async function addToFavorites(trackIds: number[], onProgress?: (added: number, total: number) => void, parallel?: boolean, signal?: AbortSignal): Promise<void> {
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
 
-	for (let i = 0; i < trackIds.length; i++) {
+	const addOne = async (trackId: number) => {
 		const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
 			method: "POST",
 			headers: {
 				...headers,
 				"Content-Type": "application/x-www-form-urlencoded",
 			},
-			body: `trackIds=${trackIds[i]}`,
+			body: `trackIds=${trackId}`,
+			signal,
 		});
 		if (!res.ok) throw new Error(`Failed to add track to favorites: ${res.status}`);
-		onProgress?.(i + 1, trackIds.length);
+	};
+
+	if (parallel) {
+		const maxConcurrency = 10;
+		let done = 0;
+		let running = 0;
+		let idx = 0;
+		let error: Error | null = null;
+
+		await new Promise<void>((resolve, reject) => {
+			const launch = () => {
+				while (running < maxConcurrency && idx < trackIds.length && !error && !signal?.aborted) {
+					const trackId = trackIds[idx++];
+					running++;
+					addOne(trackId)
+						.catch((err) => { error = err; })
+						.finally(() => {
+							running--;
+							done++;
+							onProgress?.(done, trackIds.length);
+							if (signal?.aborted && running === 0) {
+								reject(new DOMException("Cancelled", "AbortError"));
+							} else if (error && running === 0) reject(error);
+							else if (done === trackIds.length) resolve();
+							else launch();
+						});
+				}
+			};
+			if (trackIds.length === 0) resolve();
+			else launch();
+		});
+	} else {
+		for (let i = 0; i < trackIds.length; i++) {
+			if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+			await addOne(trackIds[i]);
+			onProgress?.(i + 1, trackIds.length);
+		}
 	}
 }
 
-export async function removeFromPlaylist(playlistUUID: string, removeIndices: number[]): Promise<boolean> {
+export async function removeFromPlaylist(playlistUUID: string, removeIndices: number[], signal?: AbortSignal): Promise<boolean> {
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
 
-	const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers });
+	const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers, signal });
 	if (!playlistRes.ok) return false;
 
 	const etag = playlistRes.headers.get("etag");
@@ -191,12 +231,13 @@ export async function removeFromPlaylist(playlistUUID: string, removeIndices: nu
 			...headers,
 			"If-None-Match": etag,
 		},
+		signal,
 	});
 
 	return deleteRes.ok;
 }
 
-export async function removeFromFavorites(trackIds: number[]): Promise<boolean> {
+export async function removeFromFavorites(trackIds: number[], signal?: AbortSignal): Promise<boolean> {
 	const userId = getUserId();
 	if (userId === null) return false;
 
@@ -208,21 +249,24 @@ export async function removeFromFavorites(trackIds: number[]): Promise<boolean> 
 	let idx = 0;
 	let failed = false;
 
-	await new Promise<void>((resolve) => {
+	await new Promise<void>((resolve, reject) => {
 		const launch = () => {
-			while (running < maxConcurrency && idx < trackIds.length && !failed) {
+			while (running < maxConcurrency && idx < trackIds.length && !failed && !signal?.aborted) {
 				const trackId = trackIds[idx++];
 				running++;
 				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
 					method: "DELETE",
 					headers,
+					signal,
 				})
 					.then((res) => { if (!res.ok) failed = true; })
 					.catch(() => { failed = true; })
 					.finally(() => {
 						running--;
 						done++;
-						if (done === trackIds.length || (failed && running === 0)) resolve();
+						if (signal?.aborted && running === 0) {
+							reject(new DOMException("Cancelled", "AbortError"));
+						} else if (done === trackIds.length || (failed && running === 0)) resolve();
 						else launch();
 					});
 			}

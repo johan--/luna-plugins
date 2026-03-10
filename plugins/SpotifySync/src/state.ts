@@ -8,6 +8,7 @@ export let codeVerifier = localStorage.getItem(`${STORAGE_PREFIX}codeVerifier`) 
 export let syncFavorites = localStorage.getItem(`${STORAGE_PREFIX}syncFavorites`) === "true";
 export let syncMode: "auto" | "manual" = (localStorage.getItem(`${STORAGE_PREFIX}syncMode`) as "auto" | "manual") || "auto";
 export let skipSimilar = localStorage.getItem(`${STORAGE_PREFIX}skipSimilar`) !== "false";
+export let preserveFavOrder = localStorage.getItem(`${STORAGE_PREFIX}preserveFavOrder`) !== "false";
 
 export function setClientId(id: string): void {
 	clientId = id;
@@ -42,6 +43,11 @@ export function setSyncFavorites(enabled: boolean): void {
 export function setSkipSimilar(skip: boolean): void {
 	skipSimilar = skip;
 	localStorage.setItem(`${STORAGE_PREFIX}skipSimilar`, String(skip));
+}
+
+export function setPreserveFavOrder(preserve: boolean): void {
+	preserveFavOrder = preserve;
+	localStorage.setItem(`${STORAGE_PREFIX}preserveFavOrder`, String(preserve));
 }
 
 export function setSyncMode(mode: "auto" | "manual"): void {

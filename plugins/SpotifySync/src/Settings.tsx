@@ -10,6 +10,8 @@ import {
 	setSyncMode,
 	skipSimilar as initSkipSimilar,
 	setSkipSimilar,
+	preserveFavOrder as initPreserveFavOrder,
+	setPreserveFavOrder,
 	isLoggedIn,
 	clearAuth,
 	hasSyncMemory,
@@ -22,7 +24,7 @@ import { startAuthFlow } from "./spotifyAuth";
 import { unloads as pluginUnloads } from "./index";
 import { getPlaylists, getMe, type SpotifyPlaylist } from "./spotifyApi";
 import { fetchUserPlaylists, type TidalPlaylist } from "./tidalApi";
-import { prepareAll, executeAll, type SyncPrepResult, type SyncPlaylistResult } from "./sync";
+import { prepareAll, executeAll, type SyncPrepResult, type SyncPlaylistResult, type ProgressInfo } from "./sync";
 import { SyncModal, type ModalPhase } from "./SyncModal";
 
 export const Settings = () => {
@@ -49,6 +51,7 @@ export const Settings = () => {
 	const [showModal, setShowModal] = useState(false);
 	const [modalPhase, setModalPhase] = useState<ModalPhase>("progress");
 	const [progressMessage, setProgressMessage] = useState("");
+	const [progressInfo, setProgressInfo] = useState<ProgressInfo | undefined>(undefined);
 	const [prepResults, setPrepResults] = useState<SyncPrepResult[]>([]);
 	const [results, setResults] = useState<SyncPlaylistResult[]>([]);
 	const abortRef = useRef<AbortController | null>(null);
@@ -121,6 +124,11 @@ export const Settings = () => {
 		}
 	};
 
+	const updateProgress = (message: string, progress?: ProgressInfo) => {
+		setProgressMessage(message);
+		setProgressInfo(progress);
+	};
+
 	const handleSync = async () => {
 		const selectedPlaylists = playlists.filter((p) => selected.has(p.id));
 		const abort = new AbortController();
@@ -129,6 +137,7 @@ export const Settings = () => {
 		setShowModal(true);
 		setModalPhase("progress");
 		setProgressMessage("");
+		setProgressInfo(undefined);
 		setPrepResults([]);
 		setResults([]);
 
@@ -137,7 +146,7 @@ export const Settings = () => {
 			const preps = await prepareAll(
 				selectedPlaylists,
 				doSyncFavorites,
-				setProgressMessage,
+				updateProgress,
 				() => {},
 				abort.signal,
 			);
@@ -159,10 +168,10 @@ export const Settings = () => {
 						tracksToAdd: prep.tracksToAdd.filter((t) => !t.similarExisting || t.similarExisting.length === 0),
 					}))
 				: preps;
-			setProgressMessage("Adding tracks...");
+			updateProgress("Adding tracks...");
 			await executeAll(
 				filteredPreps,
-				setProgressMessage,
+				updateProgress,
 				(r) => setResults((prev) => [...prev, r]),
 				abort.signal,
 			);
@@ -170,7 +179,7 @@ export const Settings = () => {
 			setModalPhase("complete");
 		} catch (err) {
 			if (!(err instanceof DOMException && err.name === "AbortError")) {
-				setProgressMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+				updateProgress(`Error: ${err instanceof Error ? err.message : String(err)}`);
 			}
 		} finally {
 			setSyncing(false);
@@ -183,13 +192,13 @@ export const Settings = () => {
 		abortRef.current = abort;
 		setSyncing(true);
 		setModalPhase("progress");
-		setProgressMessage("Adding tracks...");
+		updateProgress("Adding tracks...");
 		setResults([]);
 
 		try {
 			await executeAll(
 				filteredPreps,
-				setProgressMessage,
+				updateProgress,
 				(r) => setResults((prev) => [...prev, r]),
 				abort.signal,
 			);
@@ -197,7 +206,7 @@ export const Settings = () => {
 			setModalPhase("complete");
 		} catch (err) {
 			if (!(err instanceof DOMException && err.name === "AbortError")) {
-				setProgressMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+				updateProgress(`Error: ${err instanceof Error ? err.message : String(err)}`);
 			}
 		} finally {
 			setSyncing(false);
@@ -405,6 +414,15 @@ export const Settings = () => {
 							}}
 						/>
 
+						<LunaSwitchSetting
+							title="Preserve favorites order"
+							desc="Add favorites sequentially to preserve Spotify's order (slower)"
+							defaultChecked={initPreserveFavOrder}
+							onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+								setPreserveFavOrder(e.target.checked);
+							}}
+						/>
+
 						{/* Playlist list with checkboxes */}
 						<div style={{ padding: "12px 0" }}>
 							<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
@@ -521,6 +539,7 @@ export const Settings = () => {
 				<SyncModal
 					phase={modalPhase}
 					progressMessage={progressMessage}
+					progressInfo={progressInfo}
 					prepResults={prepResults}
 					results={results}
 					onConfirm={handleConfirm}

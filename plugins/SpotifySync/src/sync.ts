@@ -4,7 +4,7 @@ import { getPlaylistTracks, getLikedTracks } from "./spotifyApi";
 import { matchAllTracks } from "./matching";
 import { fetchUserPlaylists, fetchPlaylistTracks, fetchFavoriteTracks, addTracksToPlaylist, createPlaylist, addToFavorites, removeFromPlaylist, removeFromFavorites } from "./tidalApi";
 import type { TidalPlaylist, TidalTrackInfo } from "./tidalApi";
-import { getMatchCache, saveMatchCache, getSimilarDecisions } from "./state";
+import { getMatchCache, saveMatchCache, getSimilarDecisions, preserveFavOrder } from "./state";
 
 // --- Types ---
 
@@ -55,7 +55,12 @@ export interface SyncPlaylistResult {
 	unmatchedTracks: string[];
 }
 
-export type ProgressCallback = (message: string) => void;
+export interface ProgressInfo {
+	current: number;
+	total: number;
+}
+
+export type ProgressCallback = (message: string, progress?: ProgressInfo) => void;
 
 // --- ISRC helpers ---
 
@@ -254,8 +259,8 @@ async function preparePlaylistSync(
 	// 1. Fetch Spotify tracks
 	onProgress(`Fetching Spotify tracks for "${name}"...`);
 	const spotifyTracks = await getPlaylistTracks(spotifyPlaylist.id, (loaded, total) => {
-		onProgress(`Fetching Spotify tracks for "${name}": ${loaded}/${total}`);
-	});
+		onProgress(`Fetching Spotify tracks for "${name}": ${loaded}/${total}`, { current: loaded, total });
+	}, signal);
 	if (signal?.aborted) throw new DOMException("Sync cancelled", "AbortError");
 
 	// 2. Check existing Tidal playlist — fetch full track metadata
@@ -266,7 +271,7 @@ async function preparePlaylistSync(
 
 	if (existingPlaylist) {
 		onProgress(`Found existing Tidal playlist "${name}", fetching tracks...`);
-		existingTracks = await fetchPlaylistTracks(existingPlaylist.uuid);
+		existingTracks = await fetchPlaylistTracks(existingPlaylist.uuid, signal);
 		existingTrackIds = new Set(existingTracks.map((t) => t.id));
 		existingUUID = existingPlaylist.uuid;
 		onProgress(`Tidal playlist "${name}" has ${existingTrackIds.size} existing tracks`);
@@ -286,7 +291,7 @@ async function preparePlaylistSync(
 	// 3. Match all tracks
 	onProgress(`Matching tracks for "${name}"...`);
 	const matchResults = await matchAllTracks(spotifyTracks, existingTrackIds, (matched, total, unmatchedList) => {
-		onProgress(`Matching "${name}": ${matched}/${total} matched, ${unmatchedList.length} unmatched`);
+		onProgress(`Matching "${name}": ${matched}/${total} matched, ${unmatchedList.length} unmatched`, { current: matched, total });
 	}, signal, matchCache);
 
 	// Save updated match cache
@@ -392,13 +397,13 @@ async function prepareFavoritesSync(
 	const matchCache = getMatchCache(playlistKey);
 	const decisions = getSimilarDecisions(playlistKey);
 	const spotifyTracks = await getLikedTracks((loaded, total) => {
-		onProgress(`Fetching liked tracks: ${loaded}/${total}`);
-	});
+		onProgress(`Fetching liked tracks: ${loaded}/${total}`, { current: loaded, total });
+	}, signal);
 	if (signal?.aborted) throw new DOMException("Sync cancelled", "AbortError");
 
 	// 2. Fetch existing Tidal favorites with metadata
 	onProgress("Fetching existing Tidal favorites...");
-	const existingTracks = await fetchFavoriteTracks(onProgress);
+	const existingTracks = await fetchFavoriteTracks(onProgress, signal);
 	const existingTrackIds = new Set(existingTracks.map((t) => t.id));
 	onProgress(`Found ${existingTrackIds.size} existing Tidal favorites`);
 	if (signal?.aborted) throw new DOMException("Sync cancelled", "AbortError");
@@ -415,7 +420,7 @@ async function prepareFavoritesSync(
 	// 3. Match tracks
 	onProgress("Matching liked tracks...");
 	const matchResults = await matchAllTracks(spotifyTracks, existingTrackIds, (matched, total, unmatchedList) => {
-		onProgress(`Matching favorites: ${matched}/${total} matched, ${unmatchedList.length} unmatched`);
+		onProgress(`Matching favorites: ${matched}/${total} matched, ${unmatchedList.length} unmatched`, { current: matched, total });
 	}, signal, matchCache);
 
 	saveMatchCache(playlistKey, matchCache);
@@ -519,7 +524,7 @@ export async function prepareAll(
 	const results: SyncPrepResult[] = [];
 
 	onProgress("Fetching Tidal playlists...");
-	const tidalPlaylists = await fetchUserPlaylists();
+	const tidalPlaylists = await fetchUserPlaylists(signal);
 
 	for (const playlist of selectedPlaylists) {
 		if (signal?.aborted) break;
@@ -596,12 +601,12 @@ export async function executeAll(
 				if (prep.isFavorites) {
 					onProgress(`Removing ${prep.tracksToRemove.length} tracks from favorites...`);
 					const removeIds = prep.tracksToRemove.map((t) => t.tidalId);
-					const ok = await removeFromFavorites(removeIds);
+					const ok = await removeFromFavorites(removeIds, signal);
 					if (ok) removedCount = prep.tracksToRemove.length;
 				} else if (prep.existingUUID) {
 					onProgress(`Removing ${prep.tracksToRemove.length} tracks from "${prep.playlistName}"...`);
 					const removeIndices = prep.tracksToRemove.map((t) => t.playlistIndex);
-					const ok = await removeFromPlaylist(prep.existingUUID, removeIndices);
+					const ok = await removeFromPlaylist(prep.existingUUID, removeIndices, signal);
 					if (ok) removedCount = prep.tracksToRemove.length;
 				}
 			}
@@ -609,10 +614,11 @@ export async function executeAll(
 			// Phase 2: Add tracks
 			if (trackIds.length > 0) {
 				if (prep.isFavorites) {
-					onProgress(`Adding ${trackIds.length} tracks to favorites...`);
+					const parallel = !preserveFavOrder;
+					onProgress(`Adding ${trackIds.length} tracks to favorites${parallel ? " (parallel)" : ""}...`);
 					await addToFavorites(trackIds, (added, total) => {
-						onProgress(`Adding to favorites: ${added}/${total}`);
-					});
+						onProgress(`Adding to favorites: ${added}/${total}`, { current: added, total });
+					}, parallel, signal);
 					onProgress(`Added ${trackIds.length} tracks to favorites`);
 				} else {
 					let targetUUID = prep.existingUUID;
@@ -628,8 +634,8 @@ export async function executeAll(
 					}
 					onProgress(`Adding ${trackIds.length} tracks to "${prep.playlistName}"...`);
 					await addTracksToPlaylist(targetUUID, trackIds, (added, total) => {
-						onProgress(`Adding tracks to "${prep.playlistName}": ${added}/${total}`);
-					});
+						onProgress(`Adding tracks to "${prep.playlistName}": ${added}/${total}`, { current: added, total });
+					}, signal);
 					onProgress(`Added ${trackIds.length} tracks to "${prep.playlistName}"`);
 				}
 			} else if (removedCount === 0) {

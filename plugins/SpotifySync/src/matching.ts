@@ -108,10 +108,10 @@ async function isrcLookup(isrc: string): Promise<TidalTrackResult | null> {
 
 // --- Search fallback via Tidal search API ---
 
-async function searchTidal(query: string): Promise<TidalTrackResult[]> {
+async function searchTidal(query: string, signal?: AbortSignal): Promise<TidalTrackResult[]> {
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const res = await fetch(`https://desktop.tidal.com/v1/search/tracks?${queryArgs}&query=${encodeURIComponent(query)}&limit=20`, { headers });
+	const res = await fetch(`https://desktop.tidal.com/v1/search/tracks?${queryArgs}&query=${encodeURIComponent(query)}&limit=20`, { headers, signal });
 	if (!res.ok) return [];
 	const data = await res.json();
 	return (data.items ?? []) as TidalTrackResult[];
@@ -156,11 +156,13 @@ export interface MatchResult {
 
 // --- Main matching functions ---
 
-export async function matchSpotifyTrack(spotifyTrack: SpotifyTrack, sem: Semaphore): Promise<TidalMatch | null> {
+export async function matchSpotifyTrack(spotifyTrack: SpotifyTrack, sem: Semaphore, signal?: AbortSignal): Promise<TidalMatch | null> {
 	if (!spotifyTrack.id) return null;
 
 	await sem.acquire();
 	try {
+		if (signal?.aborted) return null;
+
 		// Phase 1: ISRC lookup
 		const isrc = spotifyTrack.external_ids?.isrc;
 		if (isrc) {
@@ -168,9 +170,11 @@ export async function matchSpotifyTrack(spotifyTrack: SpotifyTrack, sem: Semapho
 			if (result) return { id: result.id, isrc: result.isrc ?? null };
 		}
 
+		if (signal?.aborted) return null;
+
 		// Phase 2: Search fallback
 		const query = `${simple(spotifyTrack.name)} ${simple(spotifyTrack.artists[0].name)}`;
-		const results = await searchTidal(query);
+		const results = await searchTidal(query, signal);
 		for (const track of results) {
 			if (matchTrack(track, spotifyTrack)) return { id: track.id, isrc: track.isrc ?? null };
 		}
@@ -210,7 +214,7 @@ export async function matchAllTracks(
 			return;
 		}
 
-		const tidalMatch = await matchSpotifyTrack(st, sem);
+		const tidalMatch = await matchSpotifyTrack(st, sem, signal);
 		if (signal?.aborted) return;
 		results[i] = { spotifyTrack: st, tidalMatch };
 		if (tidalMatch !== null) {

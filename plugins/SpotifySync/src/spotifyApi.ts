@@ -35,10 +35,11 @@ export interface SpotifyPlaylist {
 
 // --- Internal helpers ---
 
-async function spotifyFetch(url: string, retries = 5): Promise<Response> {
+async function spotifyFetch(url: string, signal?: AbortSignal, retries = 5): Promise<Response> {
 	await ensureValidToken();
 	const response = await fetch(url, {
 		headers: { Authorization: "Bearer " + accessToken },
+		signal,
 	});
 
 	if (response.status === 429) {
@@ -47,7 +48,7 @@ async function spotifyFetch(url: string, retries = 5): Promise<Response> {
 		}
 		const retryAfter = Number(response.headers.get("Retry-After") ?? "1");
 		await new Promise((resolve) => setTimeout(resolve, retryAfter * 1000));
-		return spotifyFetch(url, retries - 1);
+		return spotifyFetch(url, signal, retries - 1);
 	}
 
 	if (!response.ok) {
@@ -61,12 +62,14 @@ async function fetchAllPages<T>(
 	initialUrl: string,
 	extractItems: (data: Record<string, unknown>) => T[],
 	onProgress?: (loaded: number, total: number) => void,
+	signal?: AbortSignal,
 ): Promise<T[]> {
 	const items: T[] = [];
 	let url: string | null = initialUrl;
 
 	while (url) {
-		const response = await spotifyFetch(url);
+		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+		const response = await spotifyFetch(url, signal);
 		const data = await response.json();
 
 		const pageItems = extractItems(data);
@@ -84,17 +87,19 @@ async function fetchAllPages<T>(
 
 // --- Exported functions ---
 
-export async function getMe(): Promise<{ id: string; display_name: string }> {
-	const response = await spotifyFetch(`${BASE}/me`);
+export async function getMe(signal?: AbortSignal): Promise<{ id: string; display_name: string }> {
+	const response = await spotifyFetch(`${BASE}/me`, signal);
 	const data = await response.json();
 	return { id: data.id, display_name: data.display_name };
 }
 
-export async function getPlaylists(): Promise<SpotifyPlaylist[]> {
-	const me = await getMe();
+export async function getPlaylists(signal?: AbortSignal): Promise<SpotifyPlaylist[]> {
+	const me = await getMe(signal);
 	const playlists = await fetchAllPages<SpotifyPlaylist>(
 		`${BASE}/me/playlists?limit=50`,
 		(data) => data.items as SpotifyPlaylist[],
+		undefined,
+		signal,
 	);
 	return playlists.filter((p) => p.owner.id === me.id);
 }
@@ -102,6 +107,7 @@ export async function getPlaylists(): Promise<SpotifyPlaylist[]> {
 export async function getPlaylistTracks(
 	playlistId: string,
 	onProgress?: (loaded: number, total: number) => void,
+	signal?: AbortSignal,
 ): Promise<SpotifyTrack[]> {
 	const fields = "next,total,limit,items(track(name,album(name,artists),artists,track_number,duration_ms,id,external_ids(isrc),type))";
 	const tracks = await fetchAllPages<SpotifyTrack>(
@@ -111,13 +117,14 @@ export async function getPlaylistTracks(
 			return items.map((i) => i.track).filter((t): t is SpotifyTrack => t !== null);
 		},
 		onProgress,
+		signal,
 	);
 	return tracks.filter(
 		(t) => t.type === "track" && t.album && t.album.name && t.album.artists && t.album.artists.length > 0,
 	);
 }
 
-export async function getLikedTracks(onProgress?: (loaded: number, total: number) => void): Promise<SpotifyTrack[]> {
+export async function getLikedTracks(onProgress?: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<SpotifyTrack[]> {
 	return fetchAllPages<SpotifyTrack>(
 		`${BASE}/me/tracks?limit=50`,
 		(data) => {
@@ -125,5 +132,6 @@ export async function getLikedTracks(onProgress?: (loaded: number, total: number
 			return items.map((i) => i.track).filter((t): t is SpotifyTrack => t !== null);
 		},
 		onProgress,
+		signal,
 	);
 }
