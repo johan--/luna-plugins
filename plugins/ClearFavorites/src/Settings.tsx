@@ -22,7 +22,7 @@ async function fetchFavoriteTrackIds(signal: AbortSignal): Promise<number[]> {
 	while (offset < total) {
 		if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
 		const res = await fetch(
-			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
+			`https://api.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
 			{ headers, signal },
 		);
 		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
@@ -58,7 +58,7 @@ async function deleteAllFavorites(onProgress: (done: number, total: number) => v
 			while (running < maxConcurrency && idx < trackIds.length && !signal.aborted) {
 				const trackId = trackIds[idx++];
 				running++;
-				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
+				fetch(`https://api.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
 					method: "DELETE",
 					headers,
 					signal,

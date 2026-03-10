@@ -135,7 +135,7 @@ export async function fetchFavoriteTracks(onProgress?: (message: string) => void
 		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		onProgress?.(`Fetching Tidal favorites${tracks.length > 0 ? `: ${tracks.length} loaded...` : "..."}`);
 		const res = await fetchWithRetry(
-			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
+			`https://api.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
 			{ headers, signal },
 		);
 		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
@@ -163,13 +163,13 @@ export async function addToFavorites(trackIds: number[], onProgress?: (added: nu
 	const queryArgs = TidalApi.queryArgs();
 
 	const addOne = async (trackId: number) => {
-		const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
+		const res = await fetch(`https://api.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
 			method: "POST",
 			headers: {
 				...headers,
 				"Content-Type": "application/x-www-form-urlencoded",
 			},
-			body: `trackIds=${trackId}`,
+			body: `trackId=${trackId}`,
 			signal,
 		});
 		if (!res.ok) throw new Error(`Failed to add track to favorites: ${res.status}`);
@@ -181,13 +181,13 @@ export async function addToFavorites(trackIds: number[], onProgress?: (added: nu
 		for (let i = 0; i < trackIds.length; i += chunkSize) {
 			if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 			const batch = trackIds.slice(i, i + chunkSize);
-			const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
+			const res = await fetch(`https://api.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
 				method: "POST",
 				headers: {
 					...headers,
 					"Content-Type": "application/x-www-form-urlencoded",
 				},
-				body: `trackIds=${batch.join(",")}`,
+				body: `trackId=${batch.join(",")}`,
 				signal,
 			});
 			if (!res.ok) throw new Error(`Failed to add tracks to favorites: ${res.status}`);
@@ -243,7 +243,7 @@ export async function removeFromFavorites(trackIds: number[], signal?: AbortSign
 			while (running < maxConcurrency && idx < trackIds.length && !failed && !signal?.aborted) {
 				const trackId = trackIds[idx++];
 				running++;
-				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
+				fetch(`https://api.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
 					method: "DELETE",
 					headers,
 					signal,

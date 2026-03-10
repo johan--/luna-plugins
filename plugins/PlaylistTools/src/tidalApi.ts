@@ -24,7 +24,7 @@ export async function fetchFavoritesCount(): Promise<number> {
 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=1`, { headers });
+	const res = await fetch(`https://api.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=1`, { headers });
 	if (!res.ok) return 0;
 	const data = (await res.json()) as { totalNumberOfItems: number; items: unknown[] };
 	// Tidal's totalNumberOfItems can be stale after bulk deletion — if no items returned, count is 0
@@ -70,7 +70,7 @@ export async function fetchFavoriteTracks(signal?: AbortSignal): Promise<TrackIt
 	while (offset < total) {
 		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		const res = await fetch(
-			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
+			`https://api.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
 			{ headers, signal },
 		);
 		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
@@ -130,7 +130,7 @@ export async function removeFromFavorites(trackIds: number[], onProgress?: (remo
 			while (running < maxConcurrency && idx < trackIds.length && !failed && !signal?.aborted) {
 				const trackId = trackIds[idx++];
 				running++;
-				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
+				fetch(`https://api.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
 					method: "DELETE",
 					headers,
 					signal,
@@ -264,13 +264,13 @@ export async function addToFavorites(trackIds: number[], signal?: AbortSignal): 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
 
-	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
+	const res = await fetch(`https://api.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
 		method: "POST",
 		headers: {
 			...headers,
 			"Content-Type": "application/x-www-form-urlencoded",
 		},
-		body: `trackIds=${trackIds.join(",")}`,
+		body: `trackId=${trackIds.join(",")}`,
 		signal,
 	});
 
