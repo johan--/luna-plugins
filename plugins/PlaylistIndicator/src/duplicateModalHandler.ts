@@ -10,7 +10,7 @@ const REMOVE_BUTTON_CLASS = "playlist-indicator-remove-btn";
 async function fetchPlaylistItemsFresh(playlistUUID: redux.ItemId) {
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const res = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=-1`, { headers });
+	const res = await fetch(`https://api.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=-1`, { headers });
 	if (!res.ok) return undefined;
 	return res.json() as Promise<{ items: redux.MediaItem[]; totalNumberOfItems: number }>;
 }
@@ -20,7 +20,7 @@ async function removeTracksFromPlaylist(playlistUUID: redux.ItemId, removeIndice
 	const queryArgs = TidalApi.queryArgs();
 
 	// Fetch playlist to get its ETag (required for write operations)
-	const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers });
+	const playlistRes = await fetch(`https://api.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers });
 	if (!playlistRes.ok) return false;
 
 	const etag = playlistRes.headers.get("etag");
@@ -28,7 +28,7 @@ async function removeTracksFromPlaylist(playlistUUID: redux.ItemId, removeIndice
 
 	// Delete items by index via the Tidal API
 	const indices = removeIndices.join(",");
-	const deleteRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items/${indices}?${queryArgs}`, {
+	const deleteRes = await fetch(`https://api.tidal.com/v1/playlists/${playlistUUID}/items/${indices}?${queryArgs}`, {
 		method: "DELETE",
 		headers: {
 			...headers,

@@ -111,7 +111,7 @@ async function isrcLookup(isrc: string): Promise<TidalTrackResult | null> {
 async function searchTidal(query: string, signal?: AbortSignal): Promise<TidalTrackResult[]> {
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const res = await fetch(`https://desktop.tidal.com/v1/search/tracks?${queryArgs}&query=${encodeURIComponent(query)}&limit=20`, { headers, signal });
+	const res = await fetch(`https://api.tidal.com/v1/search/tracks?${queryArgs}&query=${encodeURIComponent(query)}&limit=20`, { headers, signal });
 	if (!res.ok) return [];
 	const data = await res.json();
 	return (data.items ?? []) as TidalTrackResult[];

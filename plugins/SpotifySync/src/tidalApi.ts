@@ -35,7 +35,7 @@ export async function fetchUserPlaylists(signal?: AbortSignal): Promise<TidalPla
 
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/playlists?${queryArgs}&limit=999`, { headers, signal });
+	const res = await fetch(`https://api.tidal.com/v1/users/${userId}/playlists?${queryArgs}&limit=999`, { headers, signal });
 	if (!res.ok) throw new Error(`Failed to fetch playlists: ${res.status}`);
 
 	const data = (await res.json()) as { items: TidalPlaylist[] };
@@ -46,7 +46,7 @@ export async function fetchPlaylistTracks(playlistUUID: string, signal?: AbortSi
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
 	const res = await fetchWithRetry(
-		`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=-1`,
+		`https://api.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=-1`,
 		{ headers, signal },
 	);
 	if (!res.ok) throw new Error(`Failed to fetch playlist items: ${res.status}`);
@@ -73,14 +73,14 @@ export async function addTracksToPlaylist(playlistUUID: string, trackIds: number
 		const queryArgs = TidalApi.queryArgs();
 
 		// Get ETag
-		const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers, signal });
+		const playlistRes = await fetch(`https://api.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers, signal });
 		if (!playlistRes.ok) throw new Error(`Failed to fetch playlist for ETag: ${playlistRes.status}`);
 
 		const etag = playlistRes.headers.get("etag");
 		if (etag === null) throw new Error("Failed to get ETag from playlist response");
 
 		// Add tracks
-		const addRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}`, {
+		const addRes = await fetch(`https://api.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}`, {
 			method: "POST",
 			headers: {
 				...headers,
@@ -207,14 +207,14 @@ export async function removeFromPlaylist(playlistUUID: string, removeIndices: nu
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
 
-	const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers, signal });
+	const playlistRes = await fetch(`https://api.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers, signal });
 	if (!playlistRes.ok) return false;
 
 	const etag = playlistRes.headers.get("etag");
 	if (etag === null) return false;
 
 	const indices = removeIndices.join(",");
-	const deleteRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items/${indices}?${queryArgs}`, {
+	const deleteRes = await fetch(`https://api.tidal.com/v1/playlists/${playlistUUID}/items/${indices}?${queryArgs}`, {
 		method: "DELETE",
 		headers: {
 			...headers,
