@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      any-ascii:
+        specifier: ^0.3.3
+        version: 0.3.3
     devDependencies:
       '@types/node':
         specifier: ^25.0.9
@@ -39,6 +43,8 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  plugins/ClearFavorites: {}
+
   plugins/DedupPlaylist: {}
 
   plugins/FilteredQueueFix: {}
@@ -46,8 +52,6 @@ importers:
   plugins/PlaylistIndicator: {}
 
   plugins/ScrollToPlaying: {}
-
-  plugins/SeekSpy: {}
 
   plugins/SpotifySync:
     dependencies:

@@ -26,7 +26,9 @@ export async function fetchFavoritesCount(): Promise<number> {
 	const queryArgs = TidalApi.queryArgs();
 	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=1`, { headers });
 	if (!res.ok) return 0;
-	const data = (await res.json()) as { totalNumberOfItems: number };
+	const data = (await res.json()) as { totalNumberOfItems: number; items: unknown[] };
+	// Tidal's totalNumberOfItems can be stale after bulk deletion — if no items returned, count is 0
+	if ((data.items ?? []).length === 0) return 0;
 	return data.totalNumberOfItems ?? 0;
 }
 

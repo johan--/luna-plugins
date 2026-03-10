@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { redux, TidalApi } from "@luna/lib";
 
 const CONFIRM_TEXT = "DELETE ALL";
@@ -38,7 +38,7 @@ async function fetchFavoriteTrackIds(): Promise<number[]> {
 	return ids;
 }
 
-async function deleteAllFavorites(onProgress: (done: number, total: number) => void): Promise<number> {
+async function deleteAllFavorites(onProgress: (done: number, total: number) => void, signal: AbortSignal): Promise<number> {
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
@@ -54,7 +54,7 @@ async function deleteAllFavorites(onProgress: (done: number, total: number) => v
 
 	await new Promise<void>((resolve, reject) => {
 		const launch = () => {
-			while (running < maxConcurrency && idx < trackIds.length) {
+			while (running < maxConcurrency && idx < trackIds.length && !signal.aborted) {
 				const trackId = trackIds[idx++];
 				running++;
 				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
@@ -66,38 +66,55 @@ async function deleteAllFavorites(onProgress: (done: number, total: number) => v
 						running--;
 						done++;
 						onProgress(done, trackIds.length);
-						if (done === trackIds.length) resolve();
-						else launch();
+						if (signal.aborted && running === 0) {
+							reject(new DOMException("Cancelled", "AbortError"));
+						} else if (done === trackIds.length) {
+							resolve();
+						} else {
+							launch();
+						}
 					});
 			}
 		};
 		launch();
 	});
 
-	return trackIds.length;
+	return done;
 }
 
 export const Settings = () => {
 	const [input, setInput] = useState("");
 	const [running, setRunning] = useState(false);
 	const [status, setStatus] = useState("");
+	const abortRef = useRef<AbortController | null>(null);
 
 	const confirmed = input === CONFIRM_TEXT;
 
 	const handleClear = async () => {
+		const controller = new AbortController();
+		abortRef.current = controller;
 		setRunning(true);
 		setStatus("Fetching favorites...");
 		try {
 			const removed = await deleteAllFavorites((done, total) => {
 				setStatus(`Deleting: ${done}/${total}`);
-			});
+			}, controller.signal);
 			setStatus(removed > 0 ? `Done. Removed ${removed} tracks.` : "No favorites to remove.");
 		} catch (err) {
-			setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+			if (err instanceof DOMException && err.name === "AbortError") {
+				setStatus("Cancelled.");
+			} else {
+				setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+			}
 		} finally {
 			setRunning(false);
 			setInput("");
+			abortRef.current = null;
 		}
+	};
+
+	const handleCancel = () => {
+		abortRef.current?.abort();
 	};
 
 	return (
@@ -127,22 +144,41 @@ export const Settings = () => {
 					}}
 				/>
 			</div>
-			<button
-				onClick={handleClear}
-				disabled={!confirmed || running}
-				style={{
-					padding: "8px 20px",
-					borderRadius: "4px",
-					border: "none",
-					background: confirmed && !running ? "rgba(255,60,60,0.7)" : "rgba(255,255,255,0.1)",
-					color: "#fff",
-					cursor: confirmed && !running ? "pointer" : "not-allowed",
-					fontSize: "13px",
-					fontWeight: 500,
-				}}
-			>
-				{running ? "Deleting..." : "Clear All Favorites"}
-			</button>
+			<div style={{ display: "flex", gap: "8px" }}>
+				<button
+					onClick={handleClear}
+					disabled={!confirmed || running}
+					style={{
+						padding: "8px 20px",
+						borderRadius: "4px",
+						border: "none",
+						background: confirmed && !running ? "rgba(255,60,60,0.7)" : "rgba(255,255,255,0.1)",
+						color: "#fff",
+						cursor: confirmed && !running ? "pointer" : "not-allowed",
+						fontSize: "13px",
+						fontWeight: 500,
+					}}
+				>
+					{running ? "Deleting..." : "Clear All Favorites"}
+				</button>
+				{running && (
+					<button
+						onClick={handleCancel}
+						style={{
+							padding: "8px 20px",
+							borderRadius: "4px",
+							border: "1px solid rgba(255,100,100,0.4)",
+							background: "transparent",
+							color: "rgba(255,100,100,0.8)",
+							cursor: "pointer",
+							fontSize: "13px",
+							fontWeight: 500,
+						}}
+					>
+						Cancel
+					</button>
+				)}
+			</div>
 			{status && (
 				<div style={{ marginTop: "10px", fontSize: "13px", color: "rgba(255,255,255,0.6)" }}>
 					{status}

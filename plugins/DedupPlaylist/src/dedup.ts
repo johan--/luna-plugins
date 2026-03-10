@@ -54,6 +54,7 @@ function groupNeedsStreamInfo(group: DuplicateGroupResult): boolean {
 async function enrichAllWithStreamInfo(
 	groups: DuplicateGroupResult[],
 	onProgress: (done: number, total: number) => void,
+	signal?: AbortSignal,
 ): Promise<void> {
 	const choices: TrackChoice[] = [];
 	for (const group of groups) {
@@ -70,7 +71,7 @@ async function enrichAllWithStreamInfo(
 
 	await new Promise<void>((resolve, reject) => {
 		const launch = () => {
-			while (running < maxConcurrency && idx < choices.length) {
+			while (running < maxConcurrency && idx < choices.length && !signal?.aborted) {
 				const choice = choices[idx++];
 				running++;
 				const t = choice.track.track.item;
@@ -81,8 +82,13 @@ async function enrichAllWithStreamInfo(
 						running--;
 						done++;
 						onProgress(done, choices.length);
-						if (done === choices.length) resolve();
-						else launch();
+						if (signal?.aborted && running === 0) {
+							reject(new DOMException("Cancelled", "AbortError"));
+						} else if (done === choices.length) {
+							resolve();
+						} else {
+							launch();
+						}
 					});
 			}
 		};
@@ -94,6 +100,7 @@ async function enrichAllWithStreamInfo(
 export async function scanForDuplicates(
 	targets: SelectedTarget[],
 	onStatus: (msg: string) => void,
+	signal?: AbortSignal,
 ): Promise<PlaylistScanResult[]> {
 	const strategies = getActiveStrategies();
 	if (strategies.length === 0) throw new Error("Enable at least one detection strategy.");
@@ -101,8 +108,10 @@ export async function scanForDuplicates(
 	const results: PlaylistScanResult[] = [];
 
 	for (const target of targets) {
+		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		onStatus(`Fetching "${target.title}"...`);
 		const items = target.type === "favorites" ? await fetchFavoriteTracks() : await fetchPlaylistItems(target.uuid);
+		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		onStatus(`Fetched ${items.length} tracks from "${target.title}", scanning for duplicates...`);
 
 		const indexed: IndexedTrack[] = items.map((item, index) => ({ index, track: item }));
@@ -117,7 +126,7 @@ export async function scanForDuplicates(
 			if (groupsNeedingInfo.length > 0) {
 				await enrichAllWithStreamInfo(groupsNeedingInfo, (done, total) => {
 					onStatus(`Fetching stream quality: ${done}/${total} tracks...`);
-				});
+				}, signal);
 			}
 
 			results.push({ target, groups, indexed });
@@ -130,10 +139,12 @@ export async function scanForDuplicates(
 export async function executeRemovals(
 	results: PlaylistScanResult[],
 	onStatus: (msg: string) => void,
+	signal?: AbortSignal,
 ): Promise<string> {
 	let totalRemoved = 0;
 
 	for (const { target, groups, indexed } of results) {
+		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		const removeIndices: number[] = [];
 		for (const group of groups) {
 			for (const choice of group.choices) {

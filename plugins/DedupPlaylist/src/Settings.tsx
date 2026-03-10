@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { LunaSettings, LunaSwitchSetting } from "@luna/ui";
 
 import { executeRemovals, scanForDuplicates, type PlaylistScanResult, type SelectedTarget } from "./dedup";
@@ -29,8 +29,9 @@ export const Settings = () => {
 	const [loading, setLoading] = useState(true);
 	const [scanResults, setScanResults] = useState<PlaylistScanResult[] | null>(null);
 	const [currentKeep, setCurrentKeep] = useState<KeepStrategy>(initKeepStrategy);
+	const abortRef = useRef<AbortController | null>(null);
 
-	useEffect(() => {
+	const refreshPlaylists = () => {
 		Promise.all([fetchUserPlaylists(), fetchFavoritesCount()])
 			.then(([pl, fc]) => {
 				setPlaylists(pl);
@@ -38,6 +39,10 @@ export const Settings = () => {
 				setLoading(false);
 			})
 			.catch(() => setLoading(false));
+	};
+
+	useEffect(() => {
+		refreshPlaylists();
 	}, []);
 
 	const selectKeep = (strategy: KeepStrategy) => {
@@ -74,10 +79,13 @@ export const Settings = () => {
 			}
 		}
 
+		const controller = new AbortController();
+		abortRef.current = controller;
 		setRunning(true);
 		setStatus("Scanning...");
 		try {
-			const results = await scanForDuplicates(targets, (msg) => setStatus(msg));
+			const results = await scanForDuplicates(targets, (msg) => setStatus(msg), controller.signal);
+			refreshPlaylists();
 			if (results.length === 0) {
 				setStatus("No duplicates found.");
 			} else {
@@ -85,24 +93,41 @@ export const Settings = () => {
 				setStatus("");
 			}
 		} catch (err) {
-			setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+			if (err instanceof DOMException && err.name === "AbortError") {
+				setStatus("Cancelled.");
+			} else {
+				setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+			}
 		} finally {
 			setRunning(false);
+			abortRef.current = null;
 		}
 	};
 
 	const handleConfirm = async (results: PlaylistScanResult[]) => {
 		setScanResults(null);
+		const controller = new AbortController();
+		abortRef.current = controller;
 		setRunning(true);
 		setStatus("Removing...");
 		try {
-			const result = await executeRemovals(results, (msg) => setStatus(msg));
+			const result = await executeRemovals(results, (msg) => setStatus(msg), controller.signal);
 			setStatus(result);
+			refreshPlaylists();
 		} catch (err) {
-			setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+			if (err instanceof DOMException && err.name === "AbortError") {
+				setStatus("Cancelled.");
+			} else {
+				setStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+			}
 		} finally {
 			setRunning(false);
+			abortRef.current = null;
 		}
+	};
+
+	const handleCancel = () => {
+		abortRef.current?.abort();
 	};
 
 	const allUuids = [FAVORITES_UUID, ...playlists.map((p) => p.uuid)];
@@ -211,23 +236,43 @@ export const Settings = () => {
 				</div>
 
 				<div style={{ padding: "0 0 16px" }}>
-					<button
-						onClick={handleScan}
-						disabled={running || selected.size === 0}
-						style={{
-							width: "100%",
-							padding: "10px 16px",
-							background: running || selected.size === 0 ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.15)",
-							border: "1px solid rgba(255,255,255,0.2)",
-							borderRadius: "4px",
-							color: "#fff",
-							cursor: running || selected.size === 0 ? "not-allowed" : "pointer",
-							fontSize: "14px",
-							fontWeight: 500,
-						}}
-					>
-						{running ? status : `Scan for duplicates (${selected.size} selected)`}
-					</button>
+					<div style={{ display: "flex", gap: "8px" }}>
+						<button
+							onClick={handleScan}
+							disabled={running || selected.size === 0}
+							style={{
+								flex: 1,
+								padding: "10px 16px",
+								background: running || selected.size === 0 ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.15)",
+								border: "1px solid rgba(255,255,255,0.2)",
+								borderRadius: "4px",
+								color: "#fff",
+								cursor: running || selected.size === 0 ? "not-allowed" : "pointer",
+								fontSize: "14px",
+								fontWeight: 500,
+							}}
+						>
+							{running ? status : `Scan for duplicates (${selected.size} selected)`}
+						</button>
+						{running && (
+							<button
+								onClick={handleCancel}
+								style={{
+									padding: "10px 20px",
+									borderRadius: "4px",
+									border: "1px solid rgba(255,100,100,0.4)",
+									background: "transparent",
+									color: "rgba(255,100,100,0.8)",
+									cursor: "pointer",
+									fontSize: "14px",
+									fontWeight: 500,
+									flexShrink: 0,
+								}}
+							>
+								Cancel
+							</button>
+						)}
+					</div>
 					{!running && status && (
 						<div style={{ marginTop: "8px", fontSize: "12px", color: "rgba(255,255,255,0.6)" }}>{status}</div>
 					)}

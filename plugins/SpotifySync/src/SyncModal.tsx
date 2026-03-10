@@ -399,20 +399,21 @@ export const SyncModal = ({ phase, progressMessage, prepResults, results, onConf
 									Matched: {result.matched} | Added: {result.added}{result.removed > 0 ? ` | Removed: ${result.removed}` : ""} | Already present: {result.alreadyPresent} | Not found: {result.unmatched}
 								</div>
 								<TrackList
+									label={`unmatched track${result.unmatchedTracks.length !== 1 ? "s" : ""}`}
+									tracks={result.unmatchedTracks}
+									color="rgba(255,200,100,0.8)"
+									copyable
+								/>
+								<TrackList
 									label={`added track${result.addedTracks.length !== 1 ? "s" : ""}`}
 									tracks={result.addedTracks}
 									color="rgba(29,185,84,0.8)"
+									copyable
 								/>
 								<TrackList
 									label={`removed track${result.removedTracks.length !== 1 ? "s" : ""}`}
 									tracks={result.removedTracks}
 									color="rgba(255,100,100,0.8)"
-								/>
-								<TrackList
-									label={`unmatched track${result.unmatchedTracks.length !== 1 ? "s" : ""}`}
-									tracks={result.unmatchedTracks}
-									color="rgba(255,200,100,0.8)"
-									copyable
 								/>
 							</div>
 						))}

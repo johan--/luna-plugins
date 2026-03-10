@@ -1,7 +1,10 @@
 {
 	"name": "@squadgazzz/luna-plugins",
 	"description": "A collection of Tidal Luna plugins",
-	"author": { "name": "squadgazzz", "url": "https://github.com/squadgazzz" },
+	"author": {
+		"name": "squadgazzz",
+		"url": "https://github.com/squadgazzz"
+	},
 	"type": "module",
 	"scripts": {
 		"watch": "concurrently \"pnpm:build --watch\" pnpm:serve",
@@ -19,5 +22,8 @@
 		"rimraf": "^6.1.2",
 		"tsx": "^4.21.0",
 		"typescript": "^5.9.3"
+	},
+	"dependencies": {
+		"any-ascii": "^0.3.3"
 	}
 }
