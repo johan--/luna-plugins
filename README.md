@@ -4,20 +4,6 @@ A collection of **[Tidal Luna](https://github.com/Inrixia/TidaLuna)** plugins.
 
 ---
 
-### FilteredQueueFix
-
-Keeps the playback queue in sync with the in-playlist filter so "Next" stays within filtered results.
-
-**The Problem:** When you filter a playlist in Tidal and start playing a track, the queue still contains **all** tracks from the playlist — not just the ones matching your filter. Pressing "Next" jumps to unrelated tracks outside your filter.
-
-**How It Works:** Intercepts queue-building Redux actions and replaces the full track list with only the tracks matching the current filter text. Matches against track title, version, artist name(s), and album title. Shuffle is respected.
-
-**Demo:**
-
-https://github.com/user-attachments/assets/e247e855-11e3-4216-8a31-6c0f641f2f8d
-
----
-
 ### PlaylistTools
 
 Deduplicate tracks and find quality upgrades in your Tidal playlists and favorites.
@@ -43,7 +29,43 @@ Deduplicate tracks and find quality upgrades in your Tidal playlists and favorit
 
 **Demo:**
 
-https://github.com/user-attachments/assets/7d61dd29-4d74-4902-a06b-0492816e8898
+https://github.com/user-attachments/assets/4a1df562-1d16-42a7-9091-37860a42076d
+
+---
+
+### SpotifySync
+
+Sync your Spotify playlists and liked songs to Tidal.
+
+**The Problem:** If you use both Spotify and Tidal, keeping your libraries in sync means manually searching and adding tracks one by one.
+
+**Features:**
+- **Playlist sync** — select Spotify playlists to sync; creates matching Tidal playlists if they don't exist
+- **Favorites sync** — sync Spotify liked songs to Tidal favorites
+- **Smart matching** — finds Tidal tracks via ISRC lookup, then falls back to search with fuzzy name/artist/duration matching
+- **Cross-release detection** — recognizes tracks already in your library even when Tidal has different regional releases (e.g. "Хаски" vs "Husky") using ISRC comparison
+- **Similar version handling** — detects when a similar version already exists (e.g. remaster vs original) and lets you choose which to keep
+- **Transliteration support** — handles non-Latin scripts (Cyrillic, CJK, etc.) via Unicode-to-ASCII transliteration
+- **Abbreviation normalization** — matches "Pt. I" to "Part 1", "Ft." to "Feat.", roman to arabic numerals
+- **Sync memory** — remembers matched tracks and similar-version decisions per playlist, skipping re-lookups on subsequent syncs
+- **Manual mode** — review every track before adding, with checkboxes to select/deselect individual tracks
+- **Copy unmatched** — copy the list of tracks that couldn't be found on Tidal to clipboard
+
+https://github.com/user-attachments/assets/c145c9db-d64e-4f1d-95f3-c23728fe9322
+
+---
+
+### FilteredQueueFix
+
+Keeps the playback queue in sync with the in-playlist filter so "Next" stays within filtered results.
+
+**The Problem:** When you filter a playlist in Tidal and start playing a track, the queue still contains **all** tracks from the playlist — not just the ones matching your filter. Pressing "Next" jumps to unrelated tracks outside your filter.
+
+**How It Works:** Intercepts queue-building Redux actions and replaces the full track list with only the tracks matching the current filter text. Matches against track title, version, artist name(s), and album title. Shuffle is respected.
+
+**Demo:**
+
+https://github.com/user-attachments/assets/e247e855-11e3-4216-8a31-6c0f641f2f8d
 
 ---
 
@@ -82,26 +104,6 @@ Highlights the currently playing track and source playlist, auto-scrolls to the 
 **Demo:**
 
 https://github.com/user-attachments/assets/c68dc654-04bd-4477-b367-11cd86b3ba6b
-
----
-
-### SpotifySync
-
-Sync your Spotify playlists and liked songs to Tidal.
-
-**The Problem:** If you use both Spotify and Tidal, keeping your libraries in sync means manually searching and adding tracks one by one.
-
-**Features:**
-- **Playlist sync** — select Spotify playlists to sync; creates matching Tidal playlists if they don't exist
-- **Favorites sync** — sync Spotify liked songs to Tidal favorites
-- **Smart matching** — finds Tidal tracks via ISRC lookup, then falls back to search with fuzzy name/artist/duration matching
-- **Cross-release detection** — recognizes tracks already in your library even when Tidal has different regional releases (e.g. "Хаски" vs "Husky") using ISRC comparison
-- **Similar version handling** — detects when a similar version already exists (e.g. remaster vs original) and lets you choose which to keep
-- **Transliteration support** — handles non-Latin scripts (Cyrillic, CJK, etc.) via Unicode-to-ASCII transliteration
-- **Abbreviation normalization** — matches "Pt. I" to "Part 1", "Ft." to "Feat.", roman to arabic numerals
-- **Sync memory** — remembers matched tracks and similar-version decisions per playlist, skipping re-lookups on subsequent syncs
-- **Manual mode** — review every track before adding, with checkboxes to select/deselect individual tracks
-- **Copy unmatched** — copy the list of tracks that couldn't be found on Tidal to clipboard
 
 ---
 
