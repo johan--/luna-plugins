@@ -110,7 +110,7 @@ export async function scanForDuplicates(
 	for (const target of targets) {
 		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		onStatus(`Fetching "${target.title}"...`);
-		const items = target.type === "favorites" ? await fetchFavoriteTracks() : await fetchPlaylistItems(target.uuid);
+		const items = target.type === "favorites" ? await fetchFavoriteTracks(signal) : await fetchPlaylistItems(target.uuid, signal);
 		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		onStatus(`Fetched ${items.length} tracks from "${target.title}", scanning for duplicates...`);
 
@@ -161,10 +161,10 @@ export async function executeRemovals(
 			const trackIds = removeIndices.map((idx) => trackMap.get(idx)!.track.item.id);
 			const success = await removeFromFavorites(trackIds, (removed, total) => {
 				onStatus(`Removing from "${target.title}": ${removed}/${total}`);
-			});
+			}, signal);
 			if (!success) return `Failed to remove tracks from "${target.title}".`;
 		} else {
-			const success = await removeFromPlaylist(target.uuid, removeIndices);
+			const success = await removeFromPlaylist(target.uuid, removeIndices, signal);
 			if (!success) return `Failed to remove tracks from "${target.title}".`;
 			updateReduxAfterRemoval(target.uuid, removeIndices);
 		}

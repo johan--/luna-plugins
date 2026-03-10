@@ -45,17 +45,17 @@ export async function fetchUserPlaylists(): Promise<PlaylistInfo[]> {
 	return data.items.map((p) => ({ uuid: p.uuid, title: p.title, numberOfTracks: p.numberOfTracks }));
 }
 
-export async function fetchPlaylistItems(playlistUUID: string): Promise<TrackItem[]> {
+export async function fetchPlaylistItems(playlistUUID: string, signal?: AbortSignal): Promise<TrackItem[]> {
 	// Use raw fetch instead of TidalApi.playlistItems() to bypass memoization
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
-	const res = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=-1`, { headers });
+	const res = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}&limit=-1`, { headers, signal });
 	if (!res.ok) throw new Error(`Failed to fetch playlist items: ${res.status}`);
 	const data = (await res.json()) as PlaylistItemsResponse;
 	return data.items;
 }
 
-export async function fetchFavoriteTracks(): Promise<TrackItem[]> {
+export async function fetchFavoriteTracks(signal?: AbortSignal): Promise<TrackItem[]> {
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
@@ -68,9 +68,10 @@ export async function fetchFavoriteTracks(): Promise<TrackItem[]> {
 	let total = Infinity;
 
 	while (offset < total) {
+		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
 		const res = await fetch(
 			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
-			{ headers },
+			{ headers, signal },
 		);
 		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
 		const data = (await res.json()) as PlaylistItemsResponse & { totalNumberOfItems?: number };
@@ -89,11 +90,11 @@ export async function fetchFavoriteTracks(): Promise<TrackItem[]> {
 	return items;
 }
 
-export async function removeFromPlaylist(playlistUUID: string, removeIndices: number[]): Promise<boolean> {
+export async function removeFromPlaylist(playlistUUID: string, removeIndices: number[], signal?: AbortSignal): Promise<boolean> {
 	const headers = await TidalApi.getAuthHeaders();
 	const queryArgs = TidalApi.queryArgs();
 
-	const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers });
+	const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers, signal });
 	if (!playlistRes.ok) return false;
 
 	const etag = playlistRes.headers.get("etag");
@@ -106,12 +107,13 @@ export async function removeFromPlaylist(playlistUUID: string, removeIndices: nu
 			...headers,
 			"If-None-Match": etag,
 		},
+		signal,
 	});
 
 	return deleteRes.ok;
 }
 
-export async function removeFromFavorites(trackIds: number[], onProgress?: (removed: number, total: number) => void): Promise<boolean> {
+export async function removeFromFavorites(trackIds: number[], onProgress?: (removed: number, total: number) => void, signal?: AbortSignal): Promise<boolean> {
 	const userId = getUserId();
 	if (userId === null) return false;
 
@@ -123,14 +125,15 @@ export async function removeFromFavorites(trackIds: number[], onProgress?: (remo
 	let idx = 0;
 	let failed = false;
 
-	await new Promise<void>((resolve) => {
+	await new Promise<void>((resolve, reject) => {
 		const launch = () => {
-			while (running < maxConcurrency && idx < trackIds.length && !failed) {
+			while (running < maxConcurrency && idx < trackIds.length && !failed && !signal?.aborted) {
 				const trackId = trackIds[idx++];
 				running++;
 				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
 					method: "DELETE",
 					headers,
+					signal,
 				})
 					.then((res) => { if (!res.ok) failed = true; })
 					.catch(() => { failed = true; })
@@ -138,7 +141,9 @@ export async function removeFromFavorites(trackIds: number[], onProgress?: (remo
 						running--;
 						done++;
 						onProgress?.(done, trackIds.length);
-						if (done === trackIds.length || (failed && running === 0)) resolve();
+						if (signal?.aborted && running === 0) {
+							reject(new DOMException("Cancelled", "AbortError"));
+						} else if (done === trackIds.length || (failed && running === 0)) resolve();
 						else launch();
 					});
 			}

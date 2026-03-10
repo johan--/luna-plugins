@@ -8,7 +8,7 @@ function getUserId(): number | null {
 	return state.session?.userId ?? null;
 }
 
-async function fetchFavoriteTrackIds(): Promise<number[]> {
+async function fetchFavoriteTrackIds(signal: AbortSignal): Promise<number[]> {
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
@@ -20,9 +20,10 @@ async function fetchFavoriteTrackIds(): Promise<number[]> {
 	let total = Infinity;
 
 	while (offset < total) {
+		if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
 		const res = await fetch(
 			`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}&limit=${limit}&offset=${offset}&order=DATE&orderDirection=ASC`,
-			{ headers },
+			{ headers, signal },
 		);
 		if (!res.ok) throw new Error(`Failed to fetch favorites: ${res.status}`);
 		const data = (await res.json()) as { totalNumberOfItems?: number; items: { item: { id: number } }[] };
@@ -42,7 +43,7 @@ async function deleteAllFavorites(onProgress: (done: number, total: number) => v
 	const userId = getUserId();
 	if (userId === null) throw new Error("Not logged in");
 
-	const trackIds = await fetchFavoriteTrackIds();
+	const trackIds = await fetchFavoriteTrackIds(signal);
 	if (trackIds.length === 0) return 0;
 
 	const headers = await TidalApi.getAuthHeaders();
@@ -60,6 +61,7 @@ async function deleteAllFavorites(onProgress: (done: number, total: number) => v
 				fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks/${trackId}?${queryArgs}`, {
 					method: "DELETE",
 					headers,
+					signal,
 				})
 					.catch(() => {})
 					.finally(() => {
