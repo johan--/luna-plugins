@@ -399,6 +399,8 @@ async function prepareFavoritesSync(
 	const spotifyTracks = await getLikedTracks((loaded, total) => {
 		onProgress(`Fetching liked tracks: ${loaded}/${total}`, { current: loaded, total });
 	}, signal);
+	// Spotify returns newest-first; reverse so oldest-first to preserve chronological order when adding to Tidal
+	spotifyTracks.reverse();
 	if (signal?.aborted) throw new DOMException("Sync cancelled", "AbortError");
 
 	// 2. Fetch existing Tidal favorites with metadata
