@@ -119,6 +119,19 @@ https://github.com/user-attachments/assets/480180c1-d6b8-4cf5-ba06-556a49bd7084
 
 ---
 
+### ClearFavorites
+
+Delete all tracks from your Tidal favorites in one click.
+
+**The Problem:** Tidal has no built-in way to clear your entire favorites library. If you want to start fresh or do a full resync, you'd have to manually remove tracks one by one.
+
+**Features:**
+- **Safety confirmation** — requires typing "DELETE ALL" before the button activates
+- **Progress tracking** — shows real-time deletion progress
+- **Cancellable** — abort the operation at any time
+
+---
+
 ## Installation
 
 Install individual plugins from the releases page:
@@ -145,6 +158,10 @@ https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.track-r
 
 ```
 https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.spotify-sync
+```
+
+```
+https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.clear-favorites
 ```
 
 Or install the full store:
