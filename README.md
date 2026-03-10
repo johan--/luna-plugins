@@ -18,18 +18,28 @@ https://github.com/user-attachments/assets/e247e855-11e3-4216-8a31-6c0f641f2f8d
 
 ---
 
-### DedupPlaylist
+### PlaylistTools
 
-Find and remove duplicate tracks from your Tidal playlists and favorites.
+Deduplicate tracks and find quality upgrades in your Tidal playlists and favorites.
 
-**The Problem:** Over time, playlists accumulate duplicate tracks — the same song added twice, re-releases, or remastered versions sitting alongside originals. Tidal provides no built-in way to detect or clean these up.
+**The Problem:** Over time, playlists accumulate duplicate tracks — the same song added twice, re-releases, or remastered versions sitting alongside originals. Meanwhile, better quality versions of your tracks may become available on Tidal without you knowing. Tidal provides no built-in tools to detect or fix either issue.
 
 **Features:**
+
+*Deduplicate mode:*
 - **Multiple detection strategies** — find duplicates by track ID, ISRC code, title + artist match, or remaster detection (e.g. "Angel" vs "Angel (Remastered 2015)")
 - **Keep strategy** — choose which duplicate to keep: best quality, oldest (first occurrence), or newest (last occurrence)
-- **Review before removing** — a modal shows all detected duplicate groups with track details (quality, bit depth, sample rate, album, year) so you can toggle which tracks to keep or remove before confirming
+
+*Find upgrades mode:*
+- **Quality upgrades** — finds higher quality versions of your tracks (e.g. HIGH → LOSSLESS → Hi-Res)
+- **Remaster detection** — finds remastered versions when your library has the original
+- **Reissue detection** — finds newer reissues (e.g. 2015 reissue of a 1999 original)
+- **ISRC + search** — looks up alternatives by ISRC code first, then falls back to search to catch remasters with different ISRCs
+
+*Shared:*
+- **Review before changing** — a modal shows all detected groups with track details (quality, bit depth, sample rate, album, year) so you can toggle which tracks to keep, remove, or replace before confirming
 - **Batch scanning** — select multiple playlists and favorites to scan at once
-- **Stream quality enrichment** — when tracks share the same quality tier, fetches actual stream info (bit depth / sample rate) to help differentiate
+- **Stream quality enrichment** — fetches actual stream info (bit depth / sample rate) to help differentiate versions
 
 **Demo:**
 
@@ -126,7 +136,7 @@ https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.scroll-
 ```
 
 ```
-https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.dedup-playlist
+https://github.com/squadgazzz/luna-plugins/releases/download/latest/luna.playlist-tools
 ```
 
 ```

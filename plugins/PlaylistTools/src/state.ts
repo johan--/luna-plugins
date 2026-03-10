@@ -33,6 +33,15 @@ export function setKeepStrategy(strategy: KeepStrategy): void {
 	localStorage.setItem(`${STORAGE_PREFIX}keepStrategy`, strategy);
 }
 
+export type ScanMode = "dedup" | "upgrade";
+
+export let scanMode: ScanMode = (localStorage.getItem(`${STORAGE_PREFIX}scanMode`) as ScanMode) ?? "dedup";
+
+export function setScanMode(mode: ScanMode): void {
+	scanMode = mode;
+	localStorage.setItem(`${STORAGE_PREFIX}scanMode`, mode);
+}
+
 export function getActiveStrategies(): string[] {
 	const strategies: string[] = [];
 	if (byId) strategies.push("id");

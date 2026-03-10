@@ -2,6 +2,7 @@ import React, { useState } from "react";
 
 import type { PlaylistScanResult } from "./dedup";
 import { fullTitle } from "./detection";
+import type { ScanMode } from "./state";
 
 function formatDuration(seconds: number): string {
 	const m = Math.floor(seconds / 60);
@@ -26,11 +27,12 @@ function qualityLabel(quality?: string): string {
 
 interface Props {
 	results: PlaylistScanResult[];
+	mode: ScanMode;
 	onConfirm: (results: PlaylistScanResult[]) => void;
 	onCancel: () => void;
 }
 
-export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
+export const ResultsModal = ({ results, mode, onConfirm, onCancel }: Props) => {
 	const [state, setState] = useState<PlaylistScanResult[]>(results);
 
 	const toggleTrack = (playlistIdx: number, groupIdx: number, choiceIdx: number) => {
@@ -56,9 +58,15 @@ export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
 	};
 
 	const totalRemove = state.reduce(
-		(sum, p) => sum + p.groups.reduce((gs, g) => gs + g.choices.filter((c) => !c.keep).length, 0),
+		(sum, p) => sum + p.groups.reduce((gs, g) => gs + g.choices.filter((c) => !c.keep && !c.isAlternative).length, 0),
 		0,
 	);
+	const totalAdd = mode === "upgrade"
+		? state.reduce(
+				(sum, p) => sum + p.groups.reduce((gs, g) => gs + g.choices.filter((c) => c.keep && c.isAlternative).length, 0),
+				0,
+			)
+		: 0;
 
 	return (
 		<div
@@ -88,9 +96,13 @@ export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
 			>
 				{/* Header */}
 				<div style={{ padding: "16px 20px", borderBottom: "1px solid rgba(255,255,255,0.1)", flexShrink: 0 }}>
-					<div style={{ fontSize: "16px", fontWeight: 600 }}>Duplicate Tracks Found</div>
+					<div style={{ fontSize: "16px", fontWeight: 600 }}>
+						{mode === "dedup" ? "Duplicate Tracks Found" : "Quality Upgrades Found"}
+					</div>
 					<div style={{ fontSize: "12px", color: "rgba(255,255,255,0.5)", marginTop: "4px" }}>
-						Checked tracks will be kept. Unchecked tracks will be removed.
+						{mode === "dedup"
+							? "Checked tracks will be kept. Unchecked tracks will be removed."
+							: "Checked tracks will be kept or added. Unchecked current tracks will be removed."}
 					</div>
 				</div>
 
@@ -135,6 +147,19 @@ export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
 													onChange={() => toggleTrack(pi, gi, ci)}
 													style={{ flexShrink: 0 }}
 												/>
+												{mode === "upgrade" && (
+													<span style={{
+														fontSize: "9px",
+														fontWeight: 600,
+														padding: "1px 5px",
+														borderRadius: "3px",
+														flexShrink: 0,
+														background: choice.isAlternative ? "rgba(80,200,120,0.2)" : "rgba(255,255,255,0.1)",
+														color: choice.isAlternative ? "rgba(80,200,120,0.8)" : "rgba(255,255,255,0.5)",
+													}}>
+														{choice.isAlternative ? "NEW" : "CURRENT"}
+													</span>
+												)}
 												<div style={{ flex: 1, minWidth: 0 }}>
 													<div
 														style={{
@@ -155,7 +180,7 @@ export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
 															</span>
 														)}
 														<span style={{ marginLeft: "6px", color: "rgba(255,255,255,0.25)" }}>
-															#{choice.index + 1} · ID:{t.id}
+															{!choice.isAlternative && <>#{choice.index + 1} · </>}ID:{t.id}
 														</span>
 													</div>
 												</div>
@@ -187,7 +212,9 @@ export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
 					}}
 				>
 					<span style={{ fontSize: "13px", color: "rgba(255,255,255,0.6)" }}>
-						{totalRemove} track{totalRemove !== 1 ? "s" : ""} will be removed
+						{mode === "dedup"
+							? `${totalRemove} track${totalRemove !== 1 ? "s" : ""} will be removed`
+							: `${totalRemove} removed, ${totalAdd} added`}
 					</span>
 					<div style={{ display: "flex", gap: "8px" }}>
 						<button
@@ -206,19 +233,21 @@ export const ResultsModal = ({ results, onConfirm, onCancel }: Props) => {
 						</button>
 						<button
 							onClick={() => onConfirm(state)}
-							disabled={totalRemove === 0}
+							disabled={mode === "dedup" ? totalRemove === 0 : (totalRemove === 0 && totalAdd === 0)}
 							style={{
 								padding: "8px 16px",
-								background: totalRemove === 0 ? "rgba(255,80,80,0.2)" : "rgba(255,80,80,0.6)",
+								background: (mode === "dedup" ? totalRemove === 0 : (totalRemove === 0 && totalAdd === 0)) ? "rgba(255,80,80,0.2)" : "rgba(255,80,80,0.6)",
 								border: "1px solid rgba(255,80,80,0.4)",
 								borderRadius: "4px",
 								color: "#fff",
-								cursor: totalRemove === 0 ? "not-allowed" : "pointer",
+								cursor: (mode === "dedup" ? totalRemove === 0 : (totalRemove === 0 && totalAdd === 0)) ? "not-allowed" : "pointer",
 								fontSize: "13px",
 								fontWeight: 500,
 							}}
 						>
-							Remove {totalRemove} track{totalRemove !== 1 ? "s" : ""}
+							{mode === "dedup"
+								? `Remove ${totalRemove} track${totalRemove !== 1 ? "s" : ""}`
+								: `Apply ${totalAdd} upgrade${totalAdd !== 1 ? "s" : ""}`}
 						</button>
 					</div>
 				</div>

@@ -1,0 +1,12 @@
+{
+	"name": "@squadgazzz/playlist-tools",
+	"description": "Deduplicate tracks, find quality upgrades, and manage Tidal playlists",
+	"homepage": "https://github.com/squadgazzz/luna-plugins#PlaylistTools",
+	"author": {
+		"name": "squadgazzz",
+		"url": "https://github.com/squadgazzz",
+		"avatarUrl": "https://avatars.githubusercontent.com/squadgazzz"
+	},
+	"main": "./src/index.ts",
+	"type": "module"
+}

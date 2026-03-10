@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { LunaSettings, LunaSwitchSetting } from "@luna/ui";
 
-import { executeRemovals, scanForDuplicates, type PlaylistScanResult, type SelectedTarget } from "./dedup";
+import { executeRemovals, executeUpgrades, scanForDuplicates, type PlaylistScanResult, type SelectedTarget } from "./dedup";
 import { ResultsModal } from "./ResultsModal";
 import {
 	byId as initById,
@@ -9,14 +9,18 @@ import {
 	byName as initByName,
 	byRemaster as initByRemaster,
 	keepStrategy as initKeepStrategy,
+	scanMode as initScanMode,
 	setById,
 	setByIsrc,
 	setByName,
 	setByRemaster,
 	setKeepStrategy,
+	setScanMode,
 	type KeepStrategy,
+	type ScanMode,
 } from "./state";
 import { fetchFavoritesCount, fetchUserPlaylists, type PlaylistInfo } from "./tidalApi";
+import { scanForUpgrades } from "./upgrade";
 
 const FAVORITES_UUID = "__favorites__";
 
@@ -30,6 +34,12 @@ export const Settings = () => {
 	const [scanResults, setScanResults] = useState<PlaylistScanResult[] | null>(null);
 	const [currentKeep, setCurrentKeep] = useState<KeepStrategy>(initKeepStrategy);
 	const abortRef = useRef<AbortController | null>(null);
+	const [currentScanMode, setCurrentScanMode] = useState<ScanMode>(initScanMode);
+
+	const selectScanMode = (mode: ScanMode) => {
+		setScanMode(mode);
+		setCurrentScanMode(mode);
+	};
 
 	const refreshPlaylists = () => {
 		Promise.all([fetchUserPlaylists(), fetchFavoritesCount()])
@@ -84,10 +94,12 @@ export const Settings = () => {
 		setRunning(true);
 		setStatus("Scanning...");
 		try {
-			const results = await scanForDuplicates(targets, (msg) => setStatus(msg), controller.signal);
+			const results = currentScanMode === "dedup"
+				? await scanForDuplicates(targets, (msg) => setStatus(msg), controller.signal)
+				: await scanForUpgrades(targets, (msg) => setStatus(msg), controller.signal);
 			refreshPlaylists();
 			if (results.length === 0) {
-				setStatus("No duplicates found.");
+				setStatus(currentScanMode === "dedup" ? "No duplicates found." : "No upgrades found.");
 			} else {
 				setScanResults(results);
 				setStatus("");
@@ -109,9 +121,11 @@ export const Settings = () => {
 		const controller = new AbortController();
 		abortRef.current = controller;
 		setRunning(true);
-		setStatus("Removing...");
+		setStatus(currentScanMode === "dedup" ? "Removing..." : "Upgrading...");
 		try {
-			const result = await executeRemovals(results, (msg) => setStatus(msg), controller.signal);
+			const result = currentScanMode === "dedup"
+				? await executeRemovals(results, (msg) => setStatus(msg), controller.signal)
+				: await executeUpgrades(results, (msg) => setStatus(msg), controller.signal);
 			setStatus(result);
 			refreshPlaylists();
 		} catch (err) {
@@ -136,55 +150,77 @@ export const Settings = () => {
 	return (
 		<>
 			<LunaSettings>
-				<LunaSwitchSetting
-					title="Detect by ID"
-					desc="Find tracks with the same Tidal track ID"
-					defaultChecked={initById}
-					onChange={(e: React.ChangeEvent<HTMLInputElement>) => setById(e.target.checked)}
-				/>
-				<LunaSwitchSetting
-					title="Detect by ISRC"
-					desc="Find tracks with the same ISRC code (with artist verification)"
-					defaultChecked={initByIsrc}
-					onChange={(e: React.ChangeEvent<HTMLInputElement>) => setByIsrc(e.target.checked)}
-				/>
-				<LunaSwitchSetting
-					title="Detect by name"
-					desc="Find tracks with the same name, artist, and similar duration"
-					defaultChecked={initByName}
-					onChange={(e: React.ChangeEvent<HTMLInputElement>) => setByName(e.target.checked)}
-				/>
-				<LunaSwitchSetting
-					title="Detect remasters"
-					desc="Find remastered versions of the same track (e.g. 'Angel' vs 'Angel (Remastered 2015)')"
-					defaultChecked={initByRemaster}
-					onChange={(e: React.ChangeEvent<HTMLInputElement>) => setByRemaster(e.target.checked)}
-				/>
-
 				<div style={{ padding: "12px 0" }}>
-					<div style={{ fontSize: "14px", fontWeight: 500, color: "#fff", marginBottom: "8px" }}>Keep strategy</div>
+					<div style={{ fontSize: "14px", fontWeight: 500, color: "#fff", marginBottom: "8px" }}>Mode</div>
 					<RadioOption
-						name="keepStrategy"
-						label="Best quality"
-						desc="Keep the highest quality version"
-						checked={currentKeep === "best-quality"}
-						onChange={() => selectKeep("best-quality")}
+						name="scanMode"
+						label="Deduplicate"
+						desc="Find and remove duplicate tracks"
+						checked={currentScanMode === "dedup"}
+						onChange={() => selectScanMode("dedup")}
 					/>
 					<RadioOption
-						name="keepStrategy"
-						label="Oldest"
-						desc="Keep the first occurrence in the playlist"
-						checked={currentKeep === "oldest"}
-						onChange={() => selectKeep("oldest")}
-					/>
-					<RadioOption
-						name="keepStrategy"
-						label="Newest"
-						desc="Keep the last occurrence in the playlist"
-						checked={currentKeep === "newest"}
-						onChange={() => selectKeep("newest")}
+						name="scanMode"
+						label="Find upgrades"
+						desc="Find better quality versions, remasters, and reissues"
+						checked={currentScanMode === "upgrade"}
+						onChange={() => selectScanMode("upgrade")}
 					/>
 				</div>
+
+				{currentScanMode === "dedup" && (
+					<>
+						<LunaSwitchSetting
+							title="Detect by ID"
+							desc="Find tracks with the same Tidal track ID"
+							defaultChecked={initById}
+							onChange={(e: React.ChangeEvent<HTMLInputElement>) => setById(e.target.checked)}
+						/>
+						<LunaSwitchSetting
+							title="Detect by ISRC"
+							desc="Find tracks with the same ISRC code (with artist verification)"
+							defaultChecked={initByIsrc}
+							onChange={(e: React.ChangeEvent<HTMLInputElement>) => setByIsrc(e.target.checked)}
+						/>
+						<LunaSwitchSetting
+							title="Detect by name"
+							desc="Find tracks with the same name, artist, and similar duration"
+							defaultChecked={initByName}
+							onChange={(e: React.ChangeEvent<HTMLInputElement>) => setByName(e.target.checked)}
+						/>
+						<LunaSwitchSetting
+							title="Detect remasters"
+							desc="Find remastered versions of the same track (e.g. 'Angel' vs 'Angel (Remastered 2015)')"
+							defaultChecked={initByRemaster}
+							onChange={(e: React.ChangeEvent<HTMLInputElement>) => setByRemaster(e.target.checked)}
+						/>
+
+						<div style={{ padding: "12px 0" }}>
+							<div style={{ fontSize: "14px", fontWeight: 500, color: "#fff", marginBottom: "8px" }}>Keep strategy</div>
+							<RadioOption
+								name="keepStrategy"
+								label="Best quality"
+								desc="Keep the highest quality version"
+								checked={currentKeep === "best-quality"}
+								onChange={() => selectKeep("best-quality")}
+							/>
+							<RadioOption
+								name="keepStrategy"
+								label="Oldest"
+								desc="Keep the first occurrence in the playlist"
+								checked={currentKeep === "oldest"}
+								onChange={() => selectKeep("oldest")}
+							/>
+							<RadioOption
+								name="keepStrategy"
+								label="Newest"
+								desc="Keep the last occurrence in the playlist"
+								checked={currentKeep === "newest"}
+								onChange={() => selectKeep("newest")}
+							/>
+						</div>
+					</>
+				)}
 
 				<div style={{ padding: "16px 0" }}>
 					<div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
@@ -252,7 +288,9 @@ export const Settings = () => {
 								fontWeight: 500,
 							}}
 						>
-							{running ? status : `Scan for duplicates (${selected.size} selected)`}
+							{running ? status : currentScanMode === "dedup"
+								? `Scan for duplicates (${selected.size} selected)`
+								: `Scan for upgrades (${selected.size} selected)`}
 						</button>
 						{running && (
 							<button
@@ -280,7 +318,7 @@ export const Settings = () => {
 			</LunaSettings>
 
 			{scanResults !== null && (
-				<ResultsModal results={scanResults} onConfirm={handleConfirm} onCancel={() => setScanResults(null)} />
+				<ResultsModal results={scanResults} mode={currentScanMode} onConfirm={handleConfirm} onCancel={() => setScanResults(null)} />
 			)}
 		</>
 	);

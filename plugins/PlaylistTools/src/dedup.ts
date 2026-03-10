@@ -3,6 +3,8 @@ import { findDuplicates } from "./detection";
 import { resolveDuplicates } from "./resolution";
 import { getActiveStrategies, keepStrategy } from "./state";
 import {
+	addToFavorites,
+	addToPlaylist,
 	fetchFavoriteTracks,
 	fetchPlaylistItems,
 	fetchStreamInfo,
@@ -23,6 +25,7 @@ export interface TrackChoice {
 	track: IndexedTrack;
 	keep: boolean;
 	streamInfo?: StreamInfo | null;
+	isAlternative?: boolean;
 }
 
 export interface DuplicateGroupResult {
@@ -174,4 +177,69 @@ export async function executeRemovals(
 
 	if (totalRemoved === 0) return "Nothing to remove.";
 	return `Removed ${totalRemoved} duplicate track(s).`;
+}
+
+export async function executeUpgrades(
+	results: PlaylistScanResult[],
+	onStatus: (msg: string) => void,
+	signal?: AbortSignal,
+): Promise<string> {
+	let totalReplaced = 0;
+	let totalAdded = 0;
+
+	for (const { target, groups, indexed } of results) {
+		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+
+		const removeIndices: number[] = [];
+		const addTrackIds: number[] = [];
+
+		for (const group of groups) {
+			for (const choice of group.choices) {
+				if (!choice.keep && !choice.isAlternative && choice.index >= 0) {
+					removeIndices.push(choice.index);
+				}
+				if (choice.keep && choice.isAlternative) {
+					addTrackIds.push(choice.track.track.item.id);
+				}
+			}
+		}
+
+		if (removeIndices.length > 0) {
+			removeIndices.sort((a, b) => a - b);
+			onStatus(`Removing ${removeIndices.length} tracks from "${target.title}"...`);
+
+			if (target.type === "favorites") {
+				const trackMap = new Map(indexed.map((t) => [t.index, t]));
+				const trackIds = removeIndices.map((idx) => trackMap.get(idx)!.track.item.id);
+				const success = await removeFromFavorites(trackIds, (removed, total) => {
+					onStatus(`Removing from "${target.title}": ${removed}/${total}`);
+				}, signal);
+				if (!success) return `Failed to remove tracks from "${target.title}".`;
+			} else {
+				const success = await removeFromPlaylist(target.uuid, removeIndices, signal);
+				if (!success) return `Failed to remove tracks from "${target.title}".`;
+				updateReduxAfterRemoval(target.uuid, removeIndices);
+			}
+			totalReplaced += removeIndices.length;
+		}
+
+		if (addTrackIds.length > 0) {
+			onStatus(`Adding ${addTrackIds.length} tracks to "${target.title}"...`);
+
+			if (target.type === "favorites") {
+				const success = await addToFavorites(addTrackIds, signal);
+				if (!success) return `Failed to add tracks to "${target.title}".`;
+			} else {
+				const success = await addToPlaylist(target.uuid, addTrackIds, signal);
+				if (!success) return `Failed to add tracks to "${target.title}".`;
+			}
+			totalAdded += addTrackIds.length;
+		}
+	}
+
+	if (totalReplaced === 0 && totalAdded === 0) return "Nothing to change.";
+	const parts: string[] = [];
+	if (totalReplaced > 0) parts.push(`replaced ${totalReplaced}`);
+	if (totalAdded > totalReplaced) parts.push(`added ${totalAdded - totalReplaced} extra`);
+	return `Done. ${parts.join(", ")} track(s).`;
 }

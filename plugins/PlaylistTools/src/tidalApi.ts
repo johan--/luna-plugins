@@ -178,3 +178,101 @@ export function updateReduxAfterRemoval(playlistUUID: string, removeIndices: num
 		removeIndices,
 	});
 }
+
+export interface TidalSearchResult {
+	id: number;
+	title: string;
+	version?: string;
+	duration: number;
+	isrc?: string;
+	artists: { id: number; name: string }[];
+	album?: { title: string; releaseDate?: string };
+	audioQuality?: string;
+}
+
+export async function isrcLookupAll(isrc: string): Promise<TidalSearchResult[]> {
+	const results: TidalSearchResult[] = [];
+	try {
+		for await (const track of TidalApi.isrc(isrc)) {
+			const t = track as any;
+			results.push({
+				id: t.id,
+				title: t.title,
+				version: t.version ?? undefined,
+				duration: t.duration,
+				isrc: t.isrc ?? undefined,
+				artists: t.artists ?? [],
+				album: t.album ?? undefined,
+				audioQuality: t.audioQuality ?? undefined,
+			});
+		}
+	} catch {
+		/* no matches */
+	}
+	return results;
+}
+
+export async function searchTracks(query: string, signal?: AbortSignal): Promise<TidalSearchResult[]> {
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+	const res = await fetch(
+		`https://desktop.tidal.com/v1/search/tracks?${queryArgs}&query=${encodeURIComponent(query)}&limit=20`,
+		{ headers, signal },
+	);
+	if (!res.ok) return [];
+	const data = await res.json();
+	return ((data.items ?? []) as any[]).map((t) => ({
+		id: t.id,
+		title: t.title,
+		version: t.version ?? undefined,
+		duration: t.duration,
+		isrc: t.isrc ?? undefined,
+		artists: t.artists ?? [],
+		album: t.album ?? undefined,
+		audioQuality: t.audioQuality ?? undefined,
+	}));
+}
+
+export async function addToPlaylist(playlistUUID: string, trackIds: number[], signal?: AbortSignal): Promise<boolean> {
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+
+	const playlistRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}?${queryArgs}`, { headers, signal });
+	if (!playlistRes.ok) return false;
+
+	const etag = playlistRes.headers.get("etag");
+	if (etag === null) return false;
+
+	const addRes = await fetch(`https://desktop.tidal.com/v1/playlists/${playlistUUID}/items?${queryArgs}`, {
+		method: "POST",
+		headers: {
+			...headers,
+			"Content-Type": "application/x-www-form-urlencoded",
+			"If-None-Match": etag,
+		},
+		body: `trackIds=${trackIds.join(",")}&onDupes=SKIP`,
+		signal,
+	});
+
+	return addRes.ok;
+}
+
+export async function addToFavorites(trackIds: number[], signal?: AbortSignal): Promise<boolean> {
+	const userId = getUserId();
+	if (userId === null) return false;
+
+	const headers = await TidalApi.getAuthHeaders();
+	const queryArgs = TidalApi.queryArgs();
+
+	const res = await fetch(`https://desktop.tidal.com/v1/users/${userId}/favorites/tracks?${queryArgs}`, {
+		method: "POST",
+		headers: {
+			...headers,
+			"Content-Type": "application/x-www-form-urlencoded",
+		},
+		body: `trackIds=${trackIds.join(",")}`,
+		signal,
+	});
+
+	return res.ok;
+}
