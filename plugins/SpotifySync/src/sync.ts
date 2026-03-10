@@ -643,6 +643,7 @@ export async function executeAll(
 			}
 		} catch (error) {
 			if (error instanceof DOMException && error.name === "AbortError") break;
+			onProgress(`Error syncing "${prep.playlistName}": ${error instanceof Error ? error.message : String(error)}`);
 		}
 
 		const result: SyncPlaylistResult = {

@@ -97,28 +97,27 @@ export async function addTracksToPlaylist(playlistUUID: string, trackIds: number
 	}
 }
 
-export function createPlaylist(title: string, description?: string): Promise<string> {
-	return new Promise<string>((resolve, reject) => {
-		const localUnloads = new Set<() => void>();
-
-		const timeout = setTimeout(() => {
-			for (const unsub of localUnloads) unsub();
-			localUnloads.clear();
-			reject(new Error("Timed out waiting for playlist creation"));
-		}, 10_000);
-
-		redux.intercept("folders/CREATE_PLAYLIST_SUCCESS" as any, localUnloads, (payload: any) => {
-			clearTimeout(timeout);
-			for (const unsub of localUnloads) unsub();
-			localUnloads.clear();
-			resolve(payload.uuid ?? payload.playlist?.uuid ?? "");
-		});
-
-		redux.store.dispatch({
-			type: "folders/CREATE_PLAYLIST",
-			payload: { title, description: description ?? "" },
-		} as any);
+export async function createPlaylist(title: string, description?: string): Promise<string> {
+	const headers = await TidalApi.getAuthHeaders();
+	const params = new URLSearchParams({
+		name: title,
+		description: description ?? "",
+		folderId: "root",
 	});
+
+	const res = await fetch(`https://api.tidal.com/v2/my-collection/playlists/folders/create-playlist?${params}`, {
+		method: "PUT",
+		headers,
+	});
+
+	if (!res.ok) throw new Error(`Failed to create playlist: ${res.status}`);
+
+	const json = await res.json();
+	const data = json.data ?? json;
+	const uuid = data.uuid ?? "";
+	if (!uuid) throw new Error(`Playlist created but UUID not found in response`);
+
+	return uuid;
 }
 
 export async function fetchFavoriteTracks(onProgress?: (message: string) => void, signal?: AbortSignal): Promise<TidalTrackInfo[]> {
