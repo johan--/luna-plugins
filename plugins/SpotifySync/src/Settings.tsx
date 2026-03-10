@@ -282,7 +282,23 @@ export const Settings = () => {
 											Add{" "}
 											<code style={{ background: "rgba(255,255,255,0.1)", padding: "1px 4px", borderRadius: "2px" }}>
 												tidaLuna://spotify-callback
-											</code>{" "}
+											</code>
+											<button
+												onClick={() => navigator.clipboard.writeText("tidaLuna://spotify-callback")}
+												title="Copy to clipboard"
+												style={{
+													marginLeft: "4px",
+													padding: "1px 5px",
+													fontSize: "11px",
+													background: "rgba(255,255,255,0.1)",
+													border: "1px solid rgba(255,255,255,0.2)",
+													borderRadius: "3px",
+													color: "rgba(255,255,255,0.6)",
+													cursor: "pointer",
+												}}
+											>
+												Copy
+											</button>{" "}
 											as a Redirect URI in your app settings
 										</div>
 										<input
