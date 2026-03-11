@@ -100,9 +100,14 @@ async function enrichAllWithStreamInfo(
 	});
 }
 
+export interface ProgressInfo {
+	current: number;
+	total: number;
+}
+
 export async function scanForDuplicates(
 	targets: SelectedTarget[],
-	onStatus: (msg: string) => void,
+	onStatus: (msg: string, progress?: ProgressInfo) => void,
 	signal?: AbortSignal,
 ): Promise<PlaylistScanResult[]> {
 	const strategies = getActiveStrategies();
@@ -115,7 +120,7 @@ export async function scanForDuplicates(
 		onStatus(`Fetching "${target.title}"...`);
 		const items = target.type === "favorites" ? await fetchFavoriteTracks(signal) : await fetchPlaylistItems(target.uuid, signal);
 		if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
-		onStatus(`Fetched ${items.length} tracks from "${target.title}", scanning for duplicates...`);
+		onStatus(`Scanning ${items.length} tracks from "${target.title}" for duplicates...`);
 
 		const indexed: IndexedTrack[] = items.map((item, index) => ({ index, track: item }));
 		const duplicateGroups = findDuplicates(indexed, strategies);
@@ -128,7 +133,7 @@ export async function scanForDuplicates(
 			const groupsNeedingInfo = groups.filter(groupNeedsStreamInfo);
 			if (groupsNeedingInfo.length > 0) {
 				await enrichAllWithStreamInfo(groupsNeedingInfo, (done, total) => {
-					onStatus(`Fetching stream quality: ${done}/${total} tracks...`);
+					onStatus(`Fetching stream quality: ${done}/${total} tracks...`, { current: done, total });
 				}, signal);
 			}
 
@@ -141,7 +146,7 @@ export async function scanForDuplicates(
 
 export async function executeRemovals(
 	results: PlaylistScanResult[],
-	onStatus: (msg: string) => void,
+	onStatus: (msg: string, progress?: ProgressInfo) => void,
 	signal?: AbortSignal,
 ): Promise<string> {
 	let totalRemoved = 0;
@@ -163,7 +168,7 @@ export async function executeRemovals(
 			const trackMap = new Map(indexed.map((t) => [t.index, t]));
 			const trackIds = removeIndices.map((idx) => trackMap.get(idx)!.track.item.id);
 			const success = await removeFromFavorites(trackIds, (removed, total) => {
-				onStatus(`Removing from "${target.title}": ${removed}/${total}`);
+				onStatus(`Removing from "${target.title}": ${removed}/${total}`, { current: removed, total });
 			}, signal);
 			if (!success) return `Failed to remove tracks from "${target.title}".`;
 		} else {
@@ -181,7 +186,7 @@ export async function executeRemovals(
 
 export async function executeUpgrades(
 	results: PlaylistScanResult[],
-	onStatus: (msg: string) => void,
+	onStatus: (msg: string, progress?: ProgressInfo) => void,
 	signal?: AbortSignal,
 ): Promise<string> {
 	let totalReplaced = 0;
@@ -212,7 +217,7 @@ export async function executeUpgrades(
 				const trackMap = new Map(indexed.map((t) => [t.index, t]));
 				const trackIds = removeIndices.map((idx) => trackMap.get(idx)!.track.item.id);
 				const success = await removeFromFavorites(trackIds, (removed, total) => {
-					onStatus(`Removing from "${target.title}": ${removed}/${total}`);
+					onStatus(`Removing from "${target.title}": ${removed}/${total}`, { current: removed, total });
 				}, signal);
 				if (!success) return `Failed to remove tracks from "${target.title}".`;
 			} else {

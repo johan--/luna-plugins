@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { LunaSettings, LunaSwitchSetting } from "@luna/ui";
 
-import { executeRemovals, executeUpgrades, scanForDuplicates, type PlaylistScanResult, type SelectedTarget } from "./dedup";
+import { executeRemovals, executeUpgrades, scanForDuplicates, type PlaylistScanResult, type ProgressInfo, type SelectedTarget } from "./dedup";
 import { ResultsModal } from "./ResultsModal";
 import {
 	byId as initById,
@@ -35,6 +35,7 @@ export const Settings = () => {
 	const [currentKeep, setCurrentKeep] = useState<KeepStrategy>(initKeepStrategy);
 	const abortRef = useRef<AbortController | null>(null);
 	const [currentScanMode, setCurrentScanMode] = useState<ScanMode>(initScanMode);
+	const [progress, setProgress] = useState<ProgressInfo | null>(null);
 
 	const selectScanMode = (mode: ScanMode) => {
 		setScanMode(mode);
@@ -93,10 +94,12 @@ export const Settings = () => {
 		abortRef.current = controller;
 		setRunning(true);
 		setStatus("Scanning...");
+		setProgress(null);
 		try {
+			const onStatus = (msg: string, p?: ProgressInfo) => { setStatus(msg); setProgress(p ?? null); };
 			const results = currentScanMode === "dedup"
-				? await scanForDuplicates(targets, (msg) => setStatus(msg), controller.signal)
-				: await scanForUpgrades(targets, (msg) => setStatus(msg), controller.signal);
+				? await scanForDuplicates(targets, onStatus, controller.signal)
+				: await scanForUpgrades(targets, onStatus, controller.signal);
 			refreshPlaylists();
 			if (results.length === 0) {
 				setStatus(currentScanMode === "dedup" ? "No duplicates found." : "No upgrades found.");
@@ -112,6 +115,7 @@ export const Settings = () => {
 			}
 		} finally {
 			setRunning(false);
+			setProgress(null);
 			abortRef.current = null;
 		}
 	};
@@ -122,10 +126,12 @@ export const Settings = () => {
 		abortRef.current = controller;
 		setRunning(true);
 		setStatus(currentScanMode === "dedup" ? "Removing..." : "Upgrading...");
+		setProgress(null);
 		try {
+			const onStatus = (msg: string, p?: ProgressInfo) => { setStatus(msg); setProgress(p ?? null); };
 			const result = currentScanMode === "dedup"
-				? await executeRemovals(results, (msg) => setStatus(msg), controller.signal)
-				: await executeUpgrades(results, (msg) => setStatus(msg), controller.signal);
+				? await executeRemovals(results, onStatus, controller.signal)
+				: await executeUpgrades(results, onStatus, controller.signal);
 			setStatus(result);
 			refreshPlaylists();
 		} catch (err) {
@@ -136,6 +142,7 @@ export const Settings = () => {
 			}
 		} finally {
 			setRunning(false);
+			setProgress(null);
 			abortRef.current = null;
 		}
 	};
@@ -288,9 +295,11 @@ export const Settings = () => {
 								fontWeight: 500,
 							}}
 						>
-							{running ? status : currentScanMode === "dedup"
-								? `Scan for duplicates (${selected.size} selected)`
-								: `Scan for upgrades (${selected.size} selected)`}
+							{!running
+								? currentScanMode === "dedup"
+									? `Scan for duplicates (${selected.size} selected)`
+									: `Scan for upgrades (${selected.size} selected)`
+								: status}
 						</button>
 						{running && (
 							<button
@@ -311,6 +320,23 @@ export const Settings = () => {
 							</button>
 						)}
 					</div>
+					{running && progress && (
+						<div style={{ marginTop: "8px" }}>
+							<div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "rgba(255,255,255,0.5)", marginBottom: "4px" }}>
+								<span>{progress.current}/{progress.total}</span>
+								<span>{Math.round((progress.current / progress.total) * 100)}%</span>
+							</div>
+							<div style={{ height: "4px", borderRadius: "2px", background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
+								<div style={{
+									height: "100%",
+									borderRadius: "2px",
+									background: "rgba(80,200,120,0.7)",
+									width: `${(progress.current / progress.total) * 100}%`,
+									transition: "width 0.2s ease",
+								}} />
+							</div>
+						</div>
+					)}
 					{!running && status && (
 						<div style={{ marginTop: "8px", fontSize: "12px", color: "rgba(255,255,255,0.6)" }}>{status}</div>
 					)}

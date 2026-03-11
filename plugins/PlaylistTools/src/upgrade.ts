@@ -1,6 +1,6 @@
 import type { IndexedTrack, TrackItem } from "./detection";
 import { isRemastered, stripRemasterTags } from "./detection";
-import type { DuplicateGroupResult, PlaylistScanResult, SelectedTarget, TrackChoice } from "./dedup";
+import type { DuplicateGroupResult, PlaylistScanResult, ProgressInfo, SelectedTarget, TrackChoice } from "./dedup";
 import {
 	fetchFavoriteTracks,
 	fetchPlaylistItems,
@@ -175,7 +175,7 @@ class Semaphore {
 
 export async function scanForUpgrades(
 	targets: SelectedTarget[],
-	onStatus: (msg: string) => void,
+	onStatus: (msg: string, progress?: ProgressInfo) => void,
 	signal?: AbortSignal,
 ): Promise<PlaylistScanResult[]> {
 	const results: PlaylistScanResult[] = [];
@@ -218,7 +218,7 @@ export async function scanForUpgrades(
 				sem.release();
 				completed++;
 				if (completed % 10 === 0 || completed === indexed.length) {
-					onStatus(`Scanning "${target.title}": ${completed}/${indexed.length} tracks checked, ${groups.length} upgrades found...`);
+					onStatus(`Scanning "${target.title}": ${completed}/${indexed.length} tracks checked, ${groups.length} upgrades found...`, { current: completed, total: indexed.length });
 				}
 			}
 		};
@@ -250,7 +250,7 @@ export async function scanForUpgrades(
 					infoSem.release();
 					infoDone++;
 					if (infoDone % 20 === 0 || infoDone === allChoices.length) {
-						onStatus(`Fetching stream quality: ${infoDone}/${allChoices.length}...`);
+						onStatus(`Fetching stream quality: ${infoDone}/${allChoices.length}...`, { current: infoDone, total: allChoices.length });
 					}
 				}
 			}));

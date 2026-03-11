@@ -500,6 +500,7 @@ export const SyncModal = ({ phase, progressMessage, progressInfo, prepResults, r
 					{phase === "complete" && (
 						<span style={{ color: "rgba(255,255,255,0.5)", fontSize: "13px" }}>
 							Total: {totalMatched} matched, {totalAdded} added{totalRemoved > 0 ? `, ${totalRemoved} removed` : ""}, {totalUnmatched} not found
+							{(totalAdded > 0 || totalRemoved > 0) && ". Restart the app to see changes in the UI"}
 						</span>
 					)}
 					{phase === "confirm" && (

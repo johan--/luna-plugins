@@ -88,6 +88,7 @@ export const Settings = () => {
 	const [input, setInput] = useState("");
 	const [running, setRunning] = useState(false);
 	const [status, setStatus] = useState("");
+	const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
 
 	const confirmed = input === CONFIRM_TEXT;
@@ -97,11 +98,17 @@ export const Settings = () => {
 		abortRef.current = controller;
 		setRunning(true);
 		setStatus("Fetching favorites...");
+		setProgress(null);
 		try {
 			const removed = await deleteAllFavorites((done, total) => {
 				setStatus(`Deleting: ${done}/${total}`);
+				setProgress({ current: done, total });
 			}, controller.signal);
-			setStatus(removed > 0 ? `Done. Removed ${removed} tracks.` : "No favorites to remove.");
+			if (removed > 0) {
+				redux.actions["content/LOAD_FAVORITE_TRACKS"]({ reset: true });
+				redux.actions["content/LOAD_ALL_FAVORITES"]();
+			}
+			setStatus(removed > 0 ? `Done. Removed ${removed} tracks. Restart the app to see changes in the UI.` : "No favorites to remove.");
 		} catch (err) {
 			if (err instanceof DOMException && err.name === "AbortError") {
 				setStatus("Cancelled.");
@@ -110,6 +117,7 @@ export const Settings = () => {
 			}
 		} finally {
 			setRunning(false);
+			setProgress(null);
 			setInput("");
 			abortRef.current = null;
 		}
@@ -161,7 +169,7 @@ export const Settings = () => {
 						fontWeight: 500,
 					}}
 				>
-					{running ? "Deleting..." : "Clear All Favorites"}
+					{running ? status || "Starting..." : "Clear All Favorites"}
 				</button>
 				{running && (
 					<button
@@ -181,7 +189,24 @@ export const Settings = () => {
 					</button>
 				)}
 			</div>
-			{status && (
+			{running && progress && (
+				<div style={{ marginTop: "10px" }}>
+					<div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", color: "rgba(255,255,255,0.5)", marginBottom: "4px" }}>
+						<span>{progress.current}/{progress.total}</span>
+						<span>{Math.round((progress.current / progress.total) * 100)}%</span>
+					</div>
+					<div style={{ height: "4px", borderRadius: "2px", background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
+						<div style={{
+							height: "100%",
+							borderRadius: "2px",
+							background: "rgba(255,60,60,0.7)",
+							width: `${(progress.current / progress.total) * 100}%`,
+							transition: "width 0.2s ease",
+						}} />
+					</div>
+				</div>
+			)}
+			{!running && status && (
 				<div style={{ marginTop: "10px", fontSize: "13px", color: "rgba(255,255,255,0.6)" }}>
 					{status}
 				</div>
