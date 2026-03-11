@@ -1,4 +1,5 @@
 import anyAscii from "any-ascii";
+import { redux } from "@luna/lib";
 import type { SpotifyPlaylist } from "./spotifyApi";
 import { getPlaylistTracks, getLikedTracks } from "./spotifyApi";
 import { matchAllTracks } from "./matching";
@@ -642,6 +643,12 @@ export async function executeAll(
 				}
 			} else if (removedCount === 0) {
 				onProgress(`No new tracks to add to "${prep.playlistName}"`);
+			}
+
+			// Refresh Tidal's internal cache so the UI reflects changes without a restart
+			if (prep.isFavorites && (trackIds.length > 0 || removedCount > 0)) {
+				redux.actions["content/LOAD_FAVORITE_TRACKS"]({ reset: true });
+				redux.actions["content/LOAD_ALL_FAVORITES"]();
 			}
 		} catch (error) {
 			if (error instanceof DOMException && error.name === "AbortError") break;
