@@ -650,6 +650,10 @@ export async function executeAll(
 				redux.actions["content/LOAD_FAVORITE_TRACKS"]({ reset: true });
 				redux.actions["content/LOAD_ALL_FAVORITES"]();
 			}
+			if (!prep.isFavorites && (trackIds.length > 0 || removedCount > 0)) {
+				redux.actions["folders/LOAD_FOLDER_ITEMS"]({ context: "sidebar", reset: true, loadAll: true });
+				redux.actions["content/LOAD_CREATED_PLAYLISTS"]({ reset: true, getAll: true });
+			}
 		} catch (error) {
 			if (error instanceof DOMException && error.name === "AbortError") break;
 			onProgress(`Error syncing "${prep.playlistName}": ${error instanceof Error ? error.message : String(error)}`);
